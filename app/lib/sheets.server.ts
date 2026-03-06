@@ -28,7 +28,7 @@ export async function appendExpense(row: string[]): Promise<void> {
     const sheets = getSheetsClient();
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
-      range: `'${process.env.GOOGLE_SHEET_NAME}'!A:F`,
+      range: `'${process.env.GOOGLE_SHEET_NAME}'!A:G`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [row] },
     });
@@ -47,7 +47,7 @@ export async function getRecentExpenses(
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
-      range: `'${process.env.GOOGLE_SHEET_NAME}'!A:F`,
+      range: `'${process.env.GOOGLE_SHEET_NAME}'!A:G`,
     });
     const values = res.data.values ?? [];
     // Skip header row, take last `count` rows, reverse (newest first)

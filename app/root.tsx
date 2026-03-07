@@ -35,34 +35,38 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [swUpdate, setSwUpdate] = useState(false);
-  const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(
-    null,
-  );
+  const [waitingWorker, setWaitingWorker] =
+    useState<ServiceWorker | null>(null);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
-    navigator.serviceWorker.register('/sw.js').then((registration) => {
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing;
-        if (!newWorker) return;
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((registration) => {
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          if (!newWorker) return;
 
-        newWorker.addEventListener('statechange', () => {
-          if (
-            newWorker.state === 'installed' &&
-            navigator.serviceWorker.controller
-          ) {
-            setWaitingWorker(newWorker);
-            setSwUpdate(true);
-          }
+          newWorker.addEventListener('statechange', () => {
+            if (
+              newWorker.state === 'installed' &&
+              navigator.serviceWorker.controller
+            ) {
+              setWaitingWorker(newWorker);
+              setSwUpdate(true);
+            }
+          });
         });
-      });
 
-      if (registration.waiting && navigator.serviceWorker.controller) {
-        setWaitingWorker(registration.waiting);
-        setSwUpdate(true);
-      }
-    });
+        if (
+          registration.waiting &&
+          navigator.serviceWorker.controller
+        ) {
+          setWaitingWorker(registration.waiting);
+          setSwUpdate(true);
+        }
+      });
   }, []);
 
   const handleUpdate = useCallback(() => {
@@ -144,7 +148,7 @@ export default function App() {
           className="fixed bottom-0 left-0 right-0 z-50 mx-auto flex max-w-md items-center justify-around border-t border-slate-200 bg-white"
           style={{
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-            height: '60px',
+            height: '80px',
           }}
         >
           <NavLink
@@ -212,7 +216,10 @@ export function ErrorBoundary() {
   let details = 'An unexpected error occurred. Please try again.';
 
   if (isRouteErrorResponse(error)) {
-    message = error.status === 404 ? 'Page not found' : `Error ${error.status}`;
+    message =
+      error.status === 404
+        ? 'Page not found'
+        : `Error ${error.status}`;
     details =
       error.status === 404
         ? 'The page you were looking for could not be found.'

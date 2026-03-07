@@ -69,7 +69,9 @@ export default function App() {
 
   return (
     <>
-      <Outlet />
+      <div className={isAuthenticated ? 'pb-16' : undefined}>
+        <Outlet />
+      </div>
       {isAuthenticated && (
         <nav className="fixed bottom-0 left-0 right-0 mx-auto flex max-w-md items-center justify-around border-t border-slate-200 bg-white py-2">
           <a

@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { data, useActionData, useLoaderData, useNavigation, useRouteError, isRouteErrorResponse } from 'react-router';
+import {
+  data,
+  useActionData,
+  useLoaderData,
+  useNavigation,
+  useRouteError,
+  isRouteErrorResponse,
+} from 'react-router';
 import type { Route } from './+types/_index';
-import { appendExpense, getAvailableMonths } from '~/lib/sheets.server';
+import {
+  appendExpense,
+  getAvailableMonths,
+} from '~/lib/sheets.server';
 import { expenseSchema } from '~/lib/validation';
 import { ExpenseForm } from '~/components/expense-form';
 import { MonthSelector } from '~/components/month-selector';
@@ -9,7 +19,10 @@ import { log } from '~/lib/logger.server';
 import { toast } from 'sonner';
 import { requireAuth } from '~/lib/auth.server';
 import { resolveActiveMonth } from '~/lib/month.server';
-import { selectedMonthCookie, selectedUserCookie } from '~/lib/cookies.server';
+import {
+  selectedMonthCookie,
+  selectedUserCookie,
+} from '~/lib/cookies.server';
 
 function formatMonthLabel(month: string): string {
   const date = new Date(month + '-01');
@@ -42,7 +55,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const cookieMonth = await selectedMonthCookie.parse(cookieHeader);
   const cookieUser = await selectedUserCookie.parse(cookieHeader);
 
-  const { months, activeMonth } = await resolveActiveMonth(cookieMonth);
+  const { months, activeMonth } =
+    await resolveActiveMonth(cookieMonth);
 
   return data({
     months,
@@ -84,12 +98,17 @@ export async function action({ request }: Route.ActionArgs) {
   if (!availableMonths.includes(parsed.month)) {
     return data({
       success: false as const,
-      error: "Sheet tab '" + parsed.month + "' not found. Please create it in the spreadsheet.",
+      error:
+        "Sheet tab '" +
+        parsed.month +
+        "' not found. Please create it in the spreadsheet.",
     });
   }
 
   const now = new Date();
-  const jakartaDate = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+  const jakartaDate = new Date(
+    now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }),
+  );
   const timestamp = `${jakartaDate.getMonth() + 1}/${jakartaDate.getDate()}/${jakartaDate.getFullYear()} ${String(jakartaDate.getHours()).padStart(2, '0')}:${String(jakartaDate.getMinutes()).padStart(2, '0')}:${String(jakartaDate.getSeconds()).padStart(2, '0')}`;
 
   const [year, month, day] = parsed.date.split('-');
@@ -108,7 +127,10 @@ export async function action({ request }: Route.ActionArgs) {
   try {
     await appendExpense(parsed.month, row);
     const headers = new Headers();
-    headers.append('Set-Cookie', await selectedMonthCookie.serialize(parsed.month));
+    headers.append(
+      'Set-Cookie',
+      await selectedMonthCookie.serialize(parsed.month),
+    );
     return data(
       {
         success: true as const,
@@ -158,7 +180,10 @@ export default function Index() {
       toast.success(
         `Saved to ${monthLabel}: ${actionData.entry.item} — IDR ${actionData.entry.amount.toLocaleString()}`,
       );
-      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      if (
+        typeof navigator !== 'undefined' &&
+        typeof navigator.vibrate === 'function'
+      ) {
         navigator.vibrate(50);
       }
       setFormKey((k) => k + 1);
@@ -175,7 +200,7 @@ export default function Index() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col bg-white">
-      <header className="px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-2 shrink-0">
+      <header className="px-4 flex justify-between items-center pt-[max(1.5rem,env(safe-area-inset-top))] pb-2 shrink-0">
         <h1 className="text-xl font-bold tracking-tight text-slate-900">
           DuitLog
         </h1>
@@ -201,16 +226,17 @@ export default function Index() {
 export function ErrorBoundary() {
   const error = useRouteError();
   const isDev = process.env.NODE_ENV === 'development';
-  const message =
-    isRouteErrorResponse(error)
-      ? error.statusText || 'Something went wrong'
-      : isDev && error instanceof Error
-        ? error.message
-        : 'Something went wrong';
+  const message = isRouteErrorResponse(error)
+    ? error.statusText || 'Something went wrong'
+    : isDev && error instanceof Error
+      ? error.message
+      : 'Something went wrong';
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center bg-white px-6 text-center">
-      <h1 className="text-xl font-bold text-slate-900">Something went wrong</h1>
+      <h1 className="text-xl font-bold text-slate-900">
+        Something went wrong
+      </h1>
       <p className="mt-2 text-sm text-slate-500">{message}</p>
       <a
         href="/"

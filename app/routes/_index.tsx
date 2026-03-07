@@ -148,10 +148,11 @@ export default function Index() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
+  const isDev = process.env.NODE_ENV === 'development';
   const message =
     isRouteErrorResponse(error)
       ? error.statusText || 'Something went wrong'
-      : error instanceof Error
+      : isDev && error instanceof Error
         ? error.message
         : 'Something went wrong';
 

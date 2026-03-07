@@ -4,6 +4,5 @@ build/
 .react-router/
 .env
 .env.local
-.vercel/
 *.log
 .DS_Store

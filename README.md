@@ -36,14 +36,14 @@ flowchart LR
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | React Router v7 (Framework Mode) |
-| Language | TypeScript |
-| Styling | Tailwind CSS v4 |
+| Layer      | Technology                             |
+| ---------- | -------------------------------------- |
+| Framework  | React Router v7 (Framework Mode)       |
+| Language   | TypeScript                             |
+| Styling    | Tailwind CSS v4                        |
 | Data Layer | Google Sheets API v4 (Service Account) |
-| Validation | Zod |
-| Deployment | Vercel (Serverless) |
+| Validation | Zod                                    |
+| Deployment | Vercel (Serverless)                    |
 
 ## Getting Started
 
@@ -101,7 +101,7 @@ Follow these steps to configure Google Sheets as your datastore:
    Rename the first sheet tab to `Transactions` and add these headers in row 1:
 
    | Timestamp | User | Category | Amount | Method | Note | Date |
-   |-----------|------|----------|--------|--------|------|------|
+   | --------- | ---- | -------- | ------ | ------ | ---- | ---- |
 
 8. **Share the spreadsheet with the Service Account**
    Click **Share**, paste the `client_email` from step 5, and grant **Editor** access.
@@ -150,20 +150,12 @@ duit-log/
 
 ## Available Scripts
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start development server |
-| `npm run build` | Production build |
-| `npm run start` | Start production server locally |
-| `npm run typecheck` | Run TypeScript type checking |
-
-## Deployment
-
-### Vercel
-
-1. Connect the GitHub repo to [Vercel](https://vercel.com/).
-2. Set all environment variables from `.env.example` in the Vercel dashboard (**Settings > Environment Variables**).
-3. Deploy — Vercel auto-detects the React Router v7 framework.
+| Command             | Description                     |
+| ------------------- | ------------------------------- |
+| `npm run dev`       | Start development server        |
+| `npm run build`     | Production build                |
+| `npm run start`     | Start production server locally |
+| `npm run typecheck` | Run TypeScript type checking    |
 
 The `@react-router/node` adapter handles the serverless function configuration.
 

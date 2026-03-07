@@ -1,4 +1,4 @@
-import { data, Form, redirect, useActionData, useNavigation } from "react-router";
+import { Form, redirect, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/login";
 import { isAuthenticated, login } from "~/lib/auth.server";
 

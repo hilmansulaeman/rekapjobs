@@ -4,6 +4,7 @@ import {
   isRouteErrorResponse,
   Links,
   Meta,
+  NavLink,
   Outlet,
   Scripts,
   ScrollRestoration,
@@ -73,25 +74,54 @@ export default function App() {
         <Outlet />
       </div>
       {isAuthenticated && (
-        <nav className="fixed bottom-0 left-0 right-0 mx-auto flex max-w-md items-center justify-around border-t border-slate-200 bg-white py-2">
-          <a
-            href="/"
-            className="flex flex-col items-center gap-1 px-4 py-1 text-xs text-slate-600 hover:text-slate-900"
+        <nav className="fixed bottom-0 left-0 right-0 z-50 mx-auto flex max-w-md items-center justify-around border-t border-slate-200 bg-white"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)', height: '60px' }}
+        >
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) =>
+              `flex flex-col items-center gap-0.5 px-4 py-2 text-xs ${isActive ? 'font-bold text-slate-900' : 'text-slate-400'}`
+            }
           >
-            Add
-          </a>
-          <a
-            href="/history"
-            className="flex flex-col items-center gap-1 px-4 py-1 text-xs text-slate-600 hover:text-slate-900"
+            {({ isActive }) => (
+              <>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={isActive ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+                <span>Add</span>
+              </>
+            )}
+          </NavLink>
+          <NavLink
+            to="/history"
+            className={({ isActive }) =>
+              `flex flex-col items-center gap-0.5 px-4 py-2 text-xs ${isActive ? 'font-bold text-slate-900' : 'text-slate-400'}`
+            }
           >
-            History
-          </a>
+            {({ isActive }) => (
+              <>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={isActive ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <span>History</span>
+              </>
+            )}
+          </NavLink>
           <Form method="post" action="/logout">
             <button
               type="submit"
-              className="flex flex-col items-center gap-1 px-4 py-1 text-xs text-slate-600 hover:text-slate-900"
+              className="flex flex-col items-center gap-0.5 px-4 py-2 text-xs text-slate-400"
             >
-              Logout
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+              <span>Logout</span>
             </button>
           </Form>
         </nav>

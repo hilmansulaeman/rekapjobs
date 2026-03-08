@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   data,
   useLoaderData,
@@ -14,6 +14,9 @@ import { selectedMonthCookie } from '~/lib/cookies.server';
 import type { ExpenseEntry } from '~/lib/types';
 import { ExpenseCard } from '~/components/expense-card';
 import { MonthSelector } from '~/components/month-selector';
+import { getPendingCount } from '~/lib/offline-queue';
+import { syncPendingExpenses } from '~/lib/sync';
+import { toast } from 'sonner';
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAuth(request);
@@ -60,6 +63,51 @@ export default function History() {
   const months = loaderData.months as string[];
   const navigate = useNavigate();
   const [sourceFilter, setSourceFilter] = useState<string>('All');
+  const [pendingCount, setPendingCount] = useState(0);
+  const [isOnline, setIsOnline] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const refreshPendingCount = useCallback(async () => {
+    try {
+      const count = await getPendingCount();
+      setPendingCount(count);
+    } catch {
+      // IndexedDB not available
+    }
+  }, []);
+
+  useEffect(() => {
+    setIsOnline(navigator.onLine);
+    refreshPendingCount();
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [refreshPendingCount]);
+
+  // Auto-sync when online with pending entries
+  useEffect(() => {
+    if (!isOnline || pendingCount === 0 || isSyncing) return;
+
+    setIsSyncing(true);
+    syncPendingExpenses((synced, total) => {
+      setPendingCount(total - synced);
+    }).then(({ synced, failed }) => {
+      refreshPendingCount();
+      setIsSyncing(false);
+      if (synced > 0) {
+        toast.success(
+          `Synced ${synced} expense${synced > 1 ? 's' : ''} to Google Sheets${failed > 0 ? ` (${failed} failed)` : ''}`,
+        );
+      }
+    });
+  }, [isOnline, pendingCount, isSyncing, refreshPendingCount]);
 
   function handleMonthChange(month: string) {
     navigate(`/history?month=${month}`);
@@ -84,6 +132,15 @@ export default function History() {
           />
         </div>
       </header>
+
+      {pendingCount > 0 && (
+        <div className="mx-4 mb-2 flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-center text-sm text-blue-800">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-xs font-bold text-white">
+            {pendingCount}
+          </span>
+          {isSyncing ? 'Syncing...' : `pending expense${pendingCount > 1 ? 's' : ''} — not yet in history`}
+        </div>
+      )}
 
       <div className="grid grid-cols-4 gap-1 px-4 pb-2">
         {['All', 'Danny', 'Dewi', 'Together'].map((s) => (

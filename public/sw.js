@@ -41,6 +41,77 @@ self.addEventListener("message", (event) => {
   }
 });
 
+// Background Sync handler
+self.addEventListener("sync", (event) => {
+  if (event.tag === "sync-expenses") {
+    event.waitUntil(syncFromSW());
+  }
+});
+
+async function syncFromSW() {
+  let db;
+  try {
+    db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("duitlog-offline", 1);
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains("pending-expenses")) {
+          database.createObjectStore("pending-expenses", { keyPath: "id" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    return;
+  }
+
+  let entries;
+  try {
+    const tx = db.transaction("pending-expenses", "readonly");
+    const store = tx.objectStore("pending-expenses");
+    entries = await new Promise((resolve, reject) => {
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    db.close();
+    return;
+  }
+
+  for (const entry of entries) {
+    try {
+      const response = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...entry.formData, createdAt: entry.createdAt }),
+      });
+
+      if (response.ok || response.status === 400) {
+        // Remove from queue
+        const deleteTx = db.transaction("pending-expenses", "readwrite");
+        deleteTx.objectStore("pending-expenses").delete(entry.id);
+        await new Promise((resolve, reject) => {
+          deleteTx.oncomplete = resolve;
+          deleteTx.onerror = reject;
+        });
+      }
+    } catch {
+      // Still offline — stop trying
+      break;
+    }
+  }
+
+  db.close();
+
+  // Notify the client to refresh pending count
+  const clients = await self.clients.matchAll();
+  for (const client of clients) {
+    client.postMessage({ type: "SYNC_COMPLETE" });
+  }
+}
+
 // Fetch strategies
 self.addEventListener("fetch", (event) => {
   const { request } = event;
@@ -49,7 +120,7 @@ self.addEventListener("fetch", (event) => {
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
 
-  // Never cache POST/action requests
+  // Only handle GET requests — let POSTs go through to the network
   if (request.method !== "GET") return;
 
   if (request.mode === "navigate") {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   data,
   useActionData,
@@ -23,6 +23,12 @@ import {
   selectedMonthCookie,
   selectedSourceCookie,
 } from '~/lib/cookies.server';
+import {
+  addPendingExpense,
+  getPendingCount,
+  registerBackgroundSync,
+} from '~/lib/offline-queue';
+import { syncPendingExpenses } from '~/lib/sync';
 
 function formatMonthLabel(month: string): string {
   const date = new Date(month + '-01');
@@ -175,7 +181,72 @@ export default function Index() {
 
   const [selectedMonth, setSelectedMonth] = useState(activeMonth);
   const [formKey, setFormKey] = useState(0);
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
+  // Track online/offline status
+  useEffect(() => {
+    setIsOnline(navigator.onLine);
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Load pending count on mount
+  const refreshPendingCount = useCallback(async () => {
+    try {
+      const count = await getPendingCount();
+      setPendingCount(count);
+    } catch {
+      // IndexedDB not available
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshPendingCount();
+  }, [refreshPendingCount]);
+
+  // Auto-sync when coming back online
+  useEffect(() => {
+    if (!isOnline || pendingCount === 0 || isSyncing) return;
+
+    setIsSyncing(true);
+    syncPendingExpenses((synced, total) => {
+      setPendingCount(total - synced);
+    }).then(({ synced, failed }) => {
+      refreshPendingCount();
+      setIsSyncing(false);
+      if (synced > 0) {
+        toast.success(
+          `Synced ${synced} expense${synced > 1 ? 's' : ''} to Google Sheets${failed > 0 ? ` (${failed} failed)` : ''}`,
+        );
+      }
+    });
+  }, [isOnline, pendingCount, isSyncing, refreshPendingCount]);
+
+  // Listen for SW sync-complete message
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'SYNC_COMPLETE') {
+        refreshPendingCount();
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, [refreshPendingCount]);
+
+  // Handle online success toast
   useEffect(() => {
     if (!actionData) return;
 
@@ -197,6 +268,45 @@ export default function Index() {
     }
   }, [actionData]);
 
+  // Handle offline form submission
+  async function handleOfflineSubmit(formData: FormData) {
+    const expense = {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      formData: {
+        month: formData.get('month') as string,
+        item: formData.get('item') as string,
+        date: formData.get('date') as string,
+        amount: formData.get('amount') as string,
+        category: formData.get('category') as string,
+        method: formData.get('method') as string,
+        source: formData.get('source') as string,
+      },
+    };
+
+    await addPendingExpense(expense);
+    await registerBackgroundSync();
+    await refreshPendingCount();
+
+    toast('Saved offline — will sync when connected', {
+      style: {
+        backgroundColor: '#fffbeb',
+        color: '#92400e',
+        border: '1px solid #fde68a',
+      },
+    });
+
+    if (
+      typeof navigator !== 'undefined' &&
+      typeof navigator.vibrate === 'function'
+    ) {
+      navigator.vibrate(50);
+    }
+
+    setFormKey((k) => k + 1);
+    setTimeout(() => amountRef.current?.focus(), 100);
+  }
+
   const errors =
     actionData && !actionData.success && 'errors' in actionData
       ? actionData.errors
@@ -216,6 +326,24 @@ export default function Index() {
           />
         </div>
       </header>
+
+      {/* Offline banner */}
+      {!isOnline && (
+        <div className="mx-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-800">
+          You're offline — expenses will be saved locally and synced when you reconnect.
+        </div>
+      )}
+
+      {/* Pending sync badge */}
+      {pendingCount > 0 && (
+        <div className="mx-4 mb-2 flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-center text-sm text-blue-800">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-xs font-bold text-white">
+            {pendingCount}
+          </span>
+          {isSyncing ? 'Syncing...' : `pending expense${pendingCount > 1 ? 's' : ''}`}
+        </div>
+      )}
+
       <ExpenseForm
         key={formKey}
         errors={errors}
@@ -223,6 +351,8 @@ export default function Index() {
         amountRef={amountRef}
         selectedMonth={selectedMonth}
         defaultSource={defaultSource}
+        isOnline={isOnline}
+        onOfflineSubmit={handleOfflineSubmit}
       />
     </main>
   );

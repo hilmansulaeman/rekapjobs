@@ -221,15 +221,25 @@ export default function Index() {
     setIsSyncing(true);
     syncPendingExpenses((synced, total) => {
       setPendingCount(total - synced);
-    }).then(({ synced, failed }) => {
-      refreshPendingCount();
-      setIsSyncing(false);
-      if (synced > 0) {
-        toast.success(
-          `Synced ${synced} expense${synced > 1 ? 's' : ''} to Google Sheets${failed > 0 ? ` (${failed} failed)` : ''}`,
+    })
+      .then(({ synced, failed }) => {
+        refreshPendingCount();
+        if (synced > 0) {
+          toast.success(
+            `Synced ${synced} expense${synced > 1 ? 's' : ''} to Google Sheets${failed > 0 ? ` (${failed} failed)` : ''}`,
+          );
+        }
+      })
+      .catch((error) => {
+        // Ensure the user is informed when background sync fails
+        console.error('Failed to sync pending expenses', error);
+        toast.error(
+          'Failed to sync pending expenses. They will be retried automatically when possible.',
         );
-      }
-    });
+      })
+      .finally(() => {
+        setIsSyncing(false);
+      });
   }, [isOnline, pendingCount, isSyncing, refreshPendingCount]);
 
   // Listen for SW sync-complete message
@@ -284,27 +294,34 @@ export default function Index() {
       },
     };
 
-    await addPendingExpense(expense);
-    await registerBackgroundSync();
-    await refreshPendingCount();
+    try {
+      await addPendingExpense(expense);
+      await registerBackgroundSync();
+      await refreshPendingCount();
 
-    toast('Saved offline — will sync when connected', {
-      style: {
-        backgroundColor: '#fffbeb',
-        color: '#92400e',
-        border: '1px solid #fde68a',
-      },
-    });
+      toast('Saved offline — will sync when connected', {
+        style: {
+          backgroundColor: '#fffbeb',
+          color: '#92400e',
+          border: '1px solid #fde68a',
+        },
+      });
 
-    if (
-      typeof navigator !== 'undefined' &&
-      typeof navigator.vibrate === 'function'
-    ) {
-      navigator.vibrate(50);
+      if (
+        typeof navigator !== 'undefined' &&
+        typeof navigator.vibrate === 'function'
+      ) {
+        navigator.vibrate(50);
+      }
+
+      setFormKey((k) => k + 1);
+      setTimeout(() => amountRef.current?.focus(), 100);
+    } catch (error) {
+      console.error('Failed to save expense offline', error);
+      toast.error(
+        'Could not save expense for offline use. Please try again or submit when back online.',
+      );
     }
-
-    setFormKey((k) => k + 1);
-    setTimeout(() => amountRef.current?.focus(), 100);
   }
 
   const errors =

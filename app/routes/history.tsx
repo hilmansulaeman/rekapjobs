@@ -98,15 +98,23 @@ export default function History() {
     setIsSyncing(true);
     syncPendingExpenses((synced, total) => {
       setPendingCount(total - synced);
-    }).then(({ synced, failed }) => {
-      refreshPendingCount();
-      setIsSyncing(false);
-      if (synced > 0) {
-        toast.success(
-          `Synced ${synced} expense${synced > 1 ? 's' : ''} to Google Sheets${failed > 0 ? ` (${failed} failed)` : ''}`,
-        );
-      }
-    });
+    })
+      .then(({ synced, failed }) => {
+        refreshPendingCount();
+        if (synced > 0) {
+          toast.success(
+            `Synced ${synced} expense${synced > 1 ? 's' : ''} to Google Sheets${failed > 0 ? ` (${failed} failed)` : ''}`,
+          );
+        }
+      })
+      .catch((error) => {
+        // Ensure errors don't leave syncing state stuck
+        console.error('Failed to sync pending expenses', error);
+        toast.error('Failed to sync pending expenses. Please try again.');
+      })
+      .finally(() => {
+        setIsSyncing(false);
+      });
   }, [isOnline, pendingCount, isSyncing, refreshPendingCount]);
 
   function handleMonthChange(month: string) {

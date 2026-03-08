@@ -18,7 +18,7 @@ interface ExpenseFormProps {
   selectedMonth?: string;
   defaultSource?: string;
   isOnline?: boolean;
-  onOfflineSubmit?: (formData: FormData) => void;
+  onOfflineSubmit?: (formData: FormData) => Promise<void>;
 }
 
 function toDateString(d: Date) {

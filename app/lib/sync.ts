@@ -23,12 +23,15 @@ export async function syncPendingExpenses(onProgress?: SyncProgressCallback): Pr
         }),
       });
 
-      if (response.ok) {
+      const isAuthFailure = response.redirected || response.status === 401;
+
+      if (response.ok && !isAuthFailure) {
         await removePendingExpense(entry.id);
         synced++;
       } else {
         // If validation failed (400), remove it — it will never succeed.
         // If server error (500), keep for retry.
+        // For auth failures (redirect/401), also keep for later retry after login.
         if (response.status === 400) {
           await removePendingExpense(entry.id);
         }

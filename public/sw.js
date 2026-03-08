@@ -80,6 +80,8 @@ async function syncFromSW() {
     return;
   }
 
+  // Ensure deterministic, chronological sync order by createdAt
+  entries.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   for (const entry of entries) {
     try {
       const response = await fetch("/api/sync", {

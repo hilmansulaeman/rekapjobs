@@ -15,8 +15,11 @@ DuitLog is a mobile-first Progressive Web App for logging daily expenses in unde
 ```mermaid
 flowchart LR
     A["Phone (PWA)"] -->|Form POST| B["React Router v7\nServer Action"]
+    A -->|Offline| E["IndexedDB Queue"]
+    E -->|Background Sync\nor online event| F["/api/sync"]
+    F -->|Validate with Zod| C
     B -->|Validate with Zod| C["Google Sheets API v4"]
-    C --> D["Google Spreadsheet\n(Transactions sheet)"]
+    C --> D["Google Spreadsheet\n(Monthly tabs: YYYY-MM)"]
     D -->|loader read| B
     B -->|JSON response| A
 ```
@@ -26,10 +29,26 @@ flowchart LR
 - Sub-10-second expense logging from phone home screen
 - Mobile-first UI with numeric keyboard, smart defaults, one-hand operation
 - Google Sheets as canonical datastore (no secondary database)
+- 9 categories (Food, Transport, Groceries, Utilities, Health, Entertainment, Shopping, Education, Other)
+- 3 payment methods (Cash, BCA Debit, QRIS)
+- Multi-source tracking (Danny, Dewi, Together) with cookie persistence
 - Category and payment method selection via tap-friendly pill buttons
-- Installable PWA (Android + iOS)
-- Simple passcode authentication
-- Offline fallback page
+- Expense history with source filtering and month navigation
+- Installable PWA (Android + iOS) with SW update notifications
+- Simple passcode authentication with 30-day sessions
+- Haptic feedback on successful save
+
+### Offline Support
+
+DuitLog works offline with a two-layer sync system:
+
+- **IndexedDB queue** — When offline (or server unreachable), expenses are saved locally to IndexedDB. The submit button changes to "Save Offline" and an amber banner indicates offline status.
+- **SW Background Sync** — On supported browsers, the service worker registers a `sync-expenses` event. When connectivity returns, the SW automatically syncs queued expenses to `/api/sync`.
+- **Client-side fallback sync** — On browsers without `SyncManager` (e.g. iOS Safari), the app listens for `online` events and syncs pending expenses from the main thread.
+- **Web Lock coordination** — Both sync paths acquire a `navigator.locks` Web Lock (`duitlog-sync`) to prevent concurrent sync and double-submission.
+- **Offline history** — Previously loaded history entries are cached in `localStorage` and shown when offline.
+- **Navigation fallback** — Failed navigation requests fall back to a cached `/offline` page.
+- **Static asset caching** — JS, CSS, images, and manifest use a stale-while-revalidate strategy.
 
 ## Tech Stack
 
@@ -94,11 +113,26 @@ Follow these steps to configure Google Sheets as your datastore:
 6. **Create a Google Spreadsheet**
    Create a new spreadsheet in Google Sheets.
 
-7. **Add a "Transactions" sheet with the header row**
-   Rename the first sheet tab to `Transactions` and add these headers in row 1:
+7. **Create monthly sheet tabs**
 
-   | Timestamp | User | Category | Amount | Method | Note | Date |
-   | --------- | ---- | -------- | ------ | ------ | ---- | ---- |
+   The app uses **monthly tabs** with the naming pattern **`YYYY-MM`** (e.g., `2025-01`, `2025-07`, `2026-03`). You must manually create a tab for each month you want to track. The app does **not** auto-create tabs — if a tab is missing, the API returns a 400 error.
+
+   Each tab needs the following header row (row 1, columns A–G):
+
+   | Timestamp | Item | Category | Amount | Method | Date | Source |
+   | --------- | ---- | -------- | ------ | ------ | ---- | ------ |
+
+   | Column | Description | Example |
+   | ------ | ----------- | ------- |
+   | A - Timestamp | Auto-generated server timestamp (Asia/Jakarta) | `3/9/2026 14:05:32` |
+   | B - Item | Expense description | `Nasi goreng` |
+   | C - Category | One of: Food, Transport, Groceries, Utilities, Health, Entertainment, Shopping, Education, Other | `Food` |
+   | D - Amount | Amount in IDR (numeric) | `25000` |
+   | E - Method | One of: Cash, BCA Debit, QRIS | `QRIS` |
+   | F - Date | User-selected date (`M/D/YYYY`) | `3/9/2026` |
+   | G - Source | One of: Danny, Dewi, Together | `Danny` |
+
+   > **Tip:** Create tabs for the next few months in advance so the app is always ready. The app reads all tabs matching the `YYYY-MM` pattern and shows the most recent first.
 
 8. **Share the spreadsheet with the Service Account**
    Click **Share**, paste the `client_email` from step 5, and grant **Editor** access.
@@ -116,25 +150,30 @@ Follow these steps to configure Google Sheets as your datastore:
 ```
 duit-log/
 ├── app/
-│   ├── root.tsx                 # Root layout, manifest link, SW registration
+│   ├── root.tsx                 # Root layout, SW registration, bottom nav
 │   ├── routes/
 │   │   ├── _index.tsx           # "/" — Add Expense form + action
-│   │   ├── history.tsx          # "/history" — Recent expenses list
+│   │   ├── history.tsx          # "/history" — Expense history with filters
 │   │   ├── login.tsx            # "/login" — Passcode entry
-│   │   └── offline.tsx          # "/offline" — Offline fallback page
+│   │   ├── offline.tsx          # "/offline" — Offline fallback page
+│   │   └── api.sync.tsx         # "/api/sync" — Offline sync endpoint
 │   ├── lib/
 │   │   ├── sheets.server.ts     # Google Sheets API client
 │   │   ├── auth.server.ts       # Session/cookie helpers
+│   │   ├── cookies.server.ts    # Month & source cookie persistence
+│   │   ├── month.server.ts      # Month resolution & network error detection
 │   │   ├── logger.server.ts     # Structured JSON logging
-│   │   ├── constants.ts         # Categories, methods, users
-│   │   └── validation.ts        # Zod schemas
-│   ├── components/
-│   │   ├── expense-form.tsx     # Main expense input form
-│   │   └── expense-card.tsx     # Single expense entry card
-│   └── lib/types.ts             # Shared types
+│   │   ├── constants.ts         # Categories, methods, sources
+│   │   ├── validation.ts        # Zod schemas
+│   │   ├── offline-queue.ts     # IndexedDB queue for pending expenses
+│   │   ├── sync.ts              # Client-side sync logic
+│   │   └── types.ts             # Shared types
+│   └── components/
+│       ├── expense-form.tsx     # Main expense input form
+│       └── expense-card.tsx     # Single expense entry card
 ├── public/
 │   ├── manifest.webmanifest     # PWA manifest
-│   ├── sw.js                    # Service worker
+│   ├── sw.js                    # Service worker (cache + background sync)
 │   ├── icon-192.png
 │   ├── icon-512.png
 │   └── apple-touch-icon.png
@@ -159,7 +198,7 @@ The `@react-router/node` adapter handles the serverless function configuration.
 ## Roadmap
 
 - **v1.5:** Today's spending total widget
-- **v2:** Offline queue with background sync, category/method management
+- **v2:** Category/method management, auto sheet tab creation
 - **v3:** Receipt photo upload, monthly summaries, Google Sign-In
 
 ## License

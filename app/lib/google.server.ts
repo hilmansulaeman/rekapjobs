@@ -89,24 +89,21 @@ export function buildGoogleRedirectUri(requestUrl: string) {
 }
 
 export function getOAuthRedirectUriForRequest(requestUrl: string) {
+  const request = new URL(requestUrl);
+  const isProductionRequest =
+    request.hostname !== 'localhost' &&
+    request.hostname !== '127.0.0.1';
+
+  if (isProductionRequest) {
+    return buildGoogleRedirectUri(requestUrl);
+  }
+
   const configured = process.env.GOOGLE_OAUTH_REDIRECT_URI?.trim();
   if (configured) {
     try {
-      const request = new URL(requestUrl);
-      const configuredUrl = new URL(configured);
-
-      const isLocalhost =
-        configuredUrl.hostname === 'localhost' ||
-        configuredUrl.hostname === '127.0.0.1';
-      const isProductionRequest =
-        request.hostname !== 'localhost' &&
-        request.hostname !== '127.0.0.1';
-
-      if (isProductionRequest && isLocalhost) {
-        return buildGoogleRedirectUri(requestUrl);
-      }
+      new URL(configured);
     } catch {
-      return configured;
+      return buildGoogleRedirectUri(requestUrl);
     }
 
     return configured;

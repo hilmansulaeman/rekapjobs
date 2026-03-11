@@ -11,6 +11,16 @@ const EXPENSE_HEADERS = [
   'Source',
 ] as const;
 
+const RECAP_SHEET_TITLE = 'rekap';
+const RECAP_HEADERS = [
+  'Timestamp',
+  'Month',
+  'Income',
+  'Expense',
+  'Savings',
+  'Total',
+] as const;
+
 export async function getAvailableMonths(
   spreadsheetId: string,
 ): Promise<string[]> {
@@ -119,4 +129,92 @@ export async function getExpensesByMonth(
     log('error', 'sheets_get_error', { error: error.message });
     throw err;
   }
+}
+
+export async function getExpenseTotalByMonth(
+  spreadsheetId: string,
+  month: string,
+): Promise<number> {
+  try {
+    const rows = await getExpensesByMonth(spreadsheetId, month);
+    return rows.reduce((sum, row) => {
+      const amount = Number((row[3] ?? '').toString().replace(/,/g, ''));
+      return Number.isFinite(amount) ? sum + amount : sum;
+    }, 0);
+  } catch (err) {
+    const message = (err as { message?: string })?.message ?? '';
+    if (
+      message.includes('Unable to parse range') ||
+      message.includes('Range')
+    ) {
+      return 0;
+    }
+    throw err;
+  }
+}
+
+async function ensureRecapSheet(spreadsheetId: string): Promise<void> {
+  const sheets = getServiceSheetsClient();
+  const res = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties.title',
+  });
+
+  const exists = (res.data.sheets ?? []).some(
+    (sheet) => sheet.properties?.title === RECAP_SHEET_TITLE,
+  );
+
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            addSheet: {
+              properties: { title: RECAP_SHEET_TITLE },
+            },
+          },
+        ],
+      },
+    });
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${RECAP_SHEET_TITLE}'!A1:F1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [Array.from(RECAP_HEADERS)] },
+  });
+}
+
+export async function appendRecap(
+  spreadsheetId: string,
+  row: string[],
+): Promise<void> {
+  const sheets = getServiceSheetsClient();
+  await ensureRecapSheet(spreadsheetId);
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `'${RECAP_SHEET_TITLE}'!A:F`,
+    valueInputOption: 'USER_ENTERED',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [row] },
+  });
+}
+
+export async function getRecapByMonth(
+  spreadsheetId: string,
+  month: string,
+): Promise<string[][]> {
+  const sheets = getServiceSheetsClient();
+  await ensureRecapSheet(spreadsheetId);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${RECAP_SHEET_TITLE}'!A:F`,
+  });
+
+  const values = res.data.values ?? [];
+  const rows = values.slice(1);
+  const filtered = rows.filter((row) => (row[1] ?? '') === month);
+  return filtered.reverse() as string[][];
 }

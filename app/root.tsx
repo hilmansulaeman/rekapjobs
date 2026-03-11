@@ -212,6 +212,33 @@ export default function App() {
             )}
           </NavLink>
           <NavLink
+            to="/recap"
+            className={({ isActive }) =>
+              `flex flex-col items-center gap-0.5 px-4 py-2 text-xs ${isActive ? 'font-bold text-slate-900' : 'text-slate-400'}`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={isActive ? 2.5 : 2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M4 20V10" />
+                  <path d="M10 20V4" />
+                  <path d="M16 20v-7" />
+                  <path d="M22 20v-4" />
+                </svg>
+                <span>Rekap</span>
+              </>
+            )}
+          </NavLink>
+          <NavLink
             to="/settings"
             className={({ isActive }) =>
               `flex flex-col items-center gap-0.5 px-4 py-2 text-xs ${isActive ? 'font-bold text-slate-900' : 'text-slate-400'}`

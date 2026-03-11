@@ -10,7 +10,6 @@ import {
 import type { Route } from './+types/_index';
 import {
   appendExpense,
-  getAvailableMonths,
 } from '~/lib/sheets.server';
 import { expenseSchema } from '~/lib/validation';
 import { ExpenseForm } from '~/components/expense-form';
@@ -70,7 +69,7 @@ type ActionData =
     };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireAuth(request);
+  const user = await requireAuth(request);
 
   const cookieHeader = request.headers.get('Cookie');
   const cookieMonth = await selectedMonthCookie.parse(cookieHeader);
@@ -80,7 +79,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     ? rawSources
     : [...SOURCES];
 
-  const { months, activeMonth } = await resolveActiveMonth(cookieMonth);
+  const { months, activeMonth } = await resolveActiveMonth(
+    user.spreadsheetId,
+    cookieMonth,
+  );
 
   return data({
     months,
@@ -91,7 +93,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireAuth(request);
+  const user = await requireAuth(request);
   const formData = await request.formData();
   const raw = {
     month: formData.get('month') as string,
@@ -118,23 +120,6 @@ export async function action({ request }: Route.ActionArgs) {
 
   const parsed = result.data;
 
-  // Verify the target month tab exists (skip when offline — appendExpense will fail gracefully)
-  try {
-    const availableMonths = await getAvailableMonths();
-    if (!availableMonths.includes(parsed.month)) {
-      return data({
-        success: false as const,
-        error:
-          "Sheet tab '" +
-          parsed.month +
-          "' not found. Please create it in the spreadsheet.",
-      });
-    }
-  } catch (err) {
-    if (!isNetworkError(err)) throw err;
-    // Offline — skip verification and let appendExpense attempt (and fail) below
-  }
-
   const now = new Date();
   const jakartaDate = new Date(
     now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }),
@@ -155,7 +140,7 @@ export async function action({ request }: Route.ActionArgs) {
   ];
 
   try {
-    await appendExpense(parsed.month, row);
+    await appendExpense(user.spreadsheetId, parsed.month, row);
     const headers = new Headers();
     headers.append(
       'Set-Cookie',

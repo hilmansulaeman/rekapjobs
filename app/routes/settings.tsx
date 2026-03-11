@@ -10,9 +10,9 @@ async function getSources(cookieHeader: string | null): Promise<string[]> {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireAuth(request);
+  const user = await requireAuth(request);
   const sources = await getSources(request.headers.get('Cookie'));
-  return data({ sources });
+  return data({ sources, user });
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -46,7 +46,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function Settings() {
-  const { sources } = useLoaderData<typeof loader>();
+  const { sources, user } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const isSubmitting = navigation.state === 'submitting';
@@ -58,6 +58,24 @@ export default function Settings() {
       <h1 className="mb-6 text-xl font-bold tracking-tight text-slate-900">
         Settings
       </h1>
+
+      <section className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h2 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+          Account
+        </h2>
+        <p className="text-sm font-semibold text-slate-900">{user.name}</p>
+        <p className="text-sm text-slate-500">{user.email}</p>
+        {user.spreadsheetUrl && (
+          <a
+            href={user.spreadsheetUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-flex rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white"
+          >
+            Open My Spreadsheet
+          </a>
+        )}
+      </section>
 
       {/* Paid From Sources */}
       <section>

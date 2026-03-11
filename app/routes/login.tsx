@@ -1,65 +1,56 @@
 import {
-  Form,
   redirect,
-  useActionData,
-  useNavigation,
+  useLoaderData,
 } from 'react-router';
 import type { Route } from './+types/login';
-import { isAuthenticated, login } from '~/lib/auth.server';
+import { isAuthenticated } from '~/lib/auth.server';
 
 export async function loader({ request }: Route.LoaderArgs) {
   if (await isAuthenticated(request)) {
     throw redirect('/');
   }
-  return null;
-}
-
-export async function action({ request }: Route.ActionArgs) {
-  const formData = await request.formData();
-  const passcode = formData.get('passcode') as string;
-  return login(request, passcode);
+  const error = new URL(request.url).searchParams.get('error');
+  return { error };
 }
 
 export default function Login() {
-  const actionData = useActionData<typeof action>() as
-    | { error?: string }
-    | undefined;
-  const navigation = useNavigation();
-  const isSubmitting = navigation.state === 'submitting';
+  const { error } = useLoaderData<typeof loader>();
+
+  const errorMessage =
+    error === 'invalid_google_state'
+      ? 'Login session expired. Please try again.'
+      : error === 'google_login_failed'
+        ? 'Google login failed. Please try again.'
+        : error === 'google_oauth_cancelled'
+          ? 'Google login was cancelled.'
+          : null;
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-white px-4">
-      <div className="w-full max-w-xs">
-        <h1 className="mb-8 text-center text-2xl font-bold tracking-tight text-slate-900">
+      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h1 className="mb-3 text-center text-2xl font-bold tracking-tight text-slate-900">
           DuitLog
         </h1>
-        <Form method="post" className="flex flex-col gap-4">
-          <label htmlFor="passcode" className="sr-only">
-            Passcode
-          </label>
-          <input
-            type="password"
-            id="passcode"
-            name="passcode"
-            placeholder="Enter passcode"
-            inputMode="numeric"
-            autoFocus
-            required
-            className="w-full rounded-lg border border-slate-500 px-4 py-3 text-center text-lg tracking-widest text-slate-900 placeholder:text-slate-500 focus:border-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-700"
-          />
-          {actionData?.error && (
-            <p className="text-center text-sm text-red-600">
-              {actionData.error}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full rounded-lg bg-slate-900 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            {isSubmitting ? 'Checking...' : 'Enter'}
-          </button>
-        </Form>
+        <p className="mb-6 text-center text-sm text-slate-500">
+          Login with Google. A personal spreadsheet will be created automatically on first sign-in.
+        </p>
+        {errorMessage && (
+          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700">
+            {errorMessage}
+          </p>
+        )}
+        <a
+          href="/auth/google"
+          className="inline-flex w-full items-center justify-center gap-3 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M21.35 11.1h-9.18v2.98h5.27c-.23 1.5-1.75 4.4-5.27 4.4-3.17 0-5.75-2.62-5.75-5.86s2.58-5.86 5.75-5.86c1.8 0 3 .77 3.69 1.43l2.51-2.43C16.78 4.19 14.7 3.2 12.17 3.2 7.11 3.2 3 7.38 3 12.52s4.11 9.32 9.17 9.32c5.29 0 8.8-3.72 8.8-8.96 0-.6-.06-1.05-.15-1.48Z"
+            />
+          </svg>
+          Continue with Google
+        </a>
       </div>
     </main>
   );

@@ -20,7 +20,7 @@ import { syncPendingExpenses } from '~/lib/sync';
 import { toast } from 'sonner';
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireAuth(request);
+  const user = await requireAuth(request);
 
   const url = new URL(request.url);
   const cookieHeader = request.headers.get('Cookie');
@@ -32,6 +32,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     : [...SOURCES];
 
   const { months, activeMonth, offline } = await resolveActiveMonth(
+    user.spreadsheetId,
     monthParam ?? cookieMonth,
   );
 
@@ -47,7 +48,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const LIMIT = 20;
-    const rows = await getExpensesByMonth(activeMonth, LIMIT);
+    const rows = await getExpensesByMonth(
+      user.spreadsheetId,
+      activeMonth,
+      LIMIT,
+    );
     const entries: ExpenseEntry[] = rows.map((row) => ({
       timestamp: row[0] ?? '',
       item: row[1] ?? '',

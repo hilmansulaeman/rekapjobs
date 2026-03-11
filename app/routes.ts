@@ -4,6 +4,8 @@ export default [
   index('routes/_index.tsx'),
   route('history', 'routes/history.tsx'),
   route('settings', 'routes/settings.tsx'),
+  route('auth/google', 'routes/auth.google.tsx'),
+  route('auth/google/callback', 'routes/auth.google.callback.tsx'),
   route('login', 'routes/login.tsx'),
   route('offline', 'routes/offline.tsx'),
   route('api/sync', 'routes/api.sync.tsx'),

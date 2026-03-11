@@ -1,67 +1,23 @@
-import { google } from 'googleapis';
 import { log } from './logger.server';
+import { getServiceSheetsClient } from './google.server';
 
-// Singleton — reuse across requests in the same server instance
-let _sheets: ReturnType<typeof google.sheets> | null = null;
+const EXPENSE_HEADERS = [
+  'Timestamp',
+  'Item',
+  'Category',
+  'Amount',
+  'Method',
+  'Date',
+  'Source',
+] as const;
 
-function normalizePrivateKey(raw: string | undefined): string {
-  if (!raw) {
-    throw new Error(
-      'Missing GOOGLE_PRIVATE_KEY. Set it in .env using the service account private key.'
-    );
-  }
-
-  const trimmed = raw.trim();
-  const unquoted =
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-      ? trimmed.slice(1, -1)
-      : trimmed;
-
-  const normalized = unquoted.replace(/\\n/g, '\n');
-
-  if (
-    !normalized.includes('-----BEGIN PRIVATE KEY-----') ||
-    normalized.includes('REPLACE_WITH_YOUR_KEY')
-  ) {
-    throw new Error(
-      'Invalid GOOGLE_PRIVATE_KEY. Use the real service account key from Google Cloud JSON (single line with literal \\n in .env).'
-    );
-  }
-
-  return normalized;
-}
-
-function getSheetsClient() {
-  if (_sheets) return _sheets;
-
-  const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-
-  if (!serviceAccountEmail || serviceAccountEmail.includes('your-service-account')) {
-    throw new Error(
-      'Invalid GOOGLE_SERVICE_ACCOUNT_EMAIL. Set it to your real service account email in .env.'
-    );
-  }
-
-  const privateKey = normalizePrivateKey(process.env.GOOGLE_PRIVATE_KEY);
-
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: serviceAccountEmail,
-      private_key: privateKey
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets']
-  });
-
-  _sheets = google.sheets({ version: 'v4', auth });
-  return _sheets;
-}
-
-export async function getAvailableMonths(): Promise<string[]> {
+export async function getAvailableMonths(
+  spreadsheetId: string,
+): Promise<string[]> {
   try {
-    const sheets = getSheetsClient();
+    const sheets = getServiceSheetsClient();
     const res = await sheets.spreadsheets.get({
-      spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
+      spreadsheetId,
       fields: 'sheets.properties.title'
     });
 
@@ -83,14 +39,53 @@ export async function getAvailableMonths(): Promise<string[]> {
   }
 }
 
+export async function ensureMonthSheet(
+  spreadsheetId: string,
+  month: string,
+): Promise<void> {
+  const sheets = getServiceSheetsClient();
+  const res = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties.title',
+  });
+
+  const exists = (res.data.sheets ?? []).some(
+    (sheet) => sheet.properties?.title === month,
+  );
+
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            addSheet: {
+              properties: { title: month },
+            },
+          },
+        ],
+      },
+    });
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${month}'!A1:G1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [Array.from(EXPENSE_HEADERS)] },
+  });
+}
+
 export async function appendExpense(
+  spreadsheetId: string,
   month: string,
   row: string[]
 ): Promise<void> {
   try {
-    const sheets = getSheetsClient();
+    const sheets = getServiceSheetsClient();
+    await ensureMonthSheet(spreadsheetId, month);
     await sheets.spreadsheets.values.append({
-      spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
+      spreadsheetId,
       range: `'${month}'!A:G`,
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
@@ -105,13 +100,14 @@ export async function appendExpense(
 }
 
 export async function getExpensesByMonth(
+  spreadsheetId: string,
   month: string,
   limit?: number
 ): Promise<string[][]> {
   try {
-    const sheets = getSheetsClient();
+    const sheets = getServiceSheetsClient();
     const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
+      spreadsheetId,
       range: `'${month}'!A:G`
     });
     const values = res.data.values ?? [];

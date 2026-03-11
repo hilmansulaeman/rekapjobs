@@ -2,11 +2,11 @@ import { data } from "react-router";
 import type { Route } from "./+types/api.sync";
 import { requireAuth } from "~/lib/auth.server";
 import { expenseSchema } from "~/lib/validation";
-import { appendExpense, getAvailableMonths } from "~/lib/sheets.server";
+import { appendExpense } from "~/lib/sheets.server";
 import { log } from "~/lib/logger.server";
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireAuth(request);
+  const user = await requireAuth(request);
 
   const body = await request.json();
   const result = expenseSchema.safeParse(body);
@@ -16,14 +16,6 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const parsed = result.data;
-
-  const months = await getAvailableMonths();
-  if (!months.includes(parsed.month)) {
-    return data(
-      { success: false, error: `Sheet tab '${parsed.month}' not found` },
-      { status: 400 }
-    );
-  }
 
   // Use original submission time (createdAt) if available, otherwise use current time
   const createdAt = body.createdAt ? new Date(body.createdAt) : new Date();
@@ -46,7 +38,7 @@ export async function action({ request }: Route.ActionArgs) {
   ];
 
   try {
-    await appendExpense(parsed.month, row);
+    await appendExpense(user.spreadsheetId, parsed.month, row);
     log("info", "offline_expense_synced", {
       source: parsed.source,
       category: parsed.category,

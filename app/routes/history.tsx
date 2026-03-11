@@ -10,7 +10,8 @@ import type { Route } from './+types/history';
 import { getExpensesByMonth } from '~/lib/sheets.server';
 import { requireAuth } from '~/lib/auth.server';
 import { resolveActiveMonth } from '~/lib/month.server';
-import { selectedMonthCookie } from '~/lib/cookies.server';
+import { selectedMonthCookie, customSourcesCookie } from '~/lib/cookies.server';
+import { SOURCES } from '~/lib/constants';
 import type { ExpenseEntry } from '~/lib/types';
 import { ExpenseCard } from '~/components/expense-card';
 import { MonthSelector } from '~/components/month-selector';
@@ -22,10 +23,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   await requireAuth(request);
 
   const url = new URL(request.url);
+  const cookieHeader = request.headers.get('Cookie');
   const monthParam = url.searchParams.get('month');
-  const cookieMonth = await selectedMonthCookie.parse(
-    request.headers.get('Cookie'),
-  );
+  const cookieMonth = await selectedMonthCookie.parse(cookieHeader);
+  const rawSources = await customSourcesCookie.parse(cookieHeader);
+  const sources: string[] = Array.isArray(rawSources) && rawSources.length > 0
+    ? rawSources
+    : [...SOURCES];
 
   const { months, activeMonth, offline } = await resolveActiveMonth(
     monthParam ?? cookieMonth,
@@ -36,6 +40,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       entries: [] as ExpenseEntry[],
       activeMonth,
       months,
+      sources,
       offline: true,
     });
   }
@@ -52,12 +57,13 @@ export async function loader({ request }: Route.LoaderArgs) {
       date: row[5] ?? '',
       source: row[6] ?? '',
     }));
-    return data({ entries, activeMonth, months });
+    return data({ entries, activeMonth, months, sources });
   } catch {
     return data({
       entries: [] as ExpenseEntry[],
       activeMonth,
       months,
+      sources,
       error: 'Failed to load expenses',
     });
   }
@@ -69,6 +75,7 @@ export default function History() {
     'error' in loaderData ? (loaderData.error as string) : null;
   const isOffline =
     'offline' in loaderData ? (loaderData.offline as boolean) : false;
+  const sources = (loaderData.sources ?? SOURCES) as string[];
   const entries = loaderData.entries as ExpenseEntry[];
   const activeMonth = loaderData.activeMonth as string;
   const months = loaderData.months as string[];
@@ -226,12 +233,12 @@ export default function History() {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-1 px-4 pb-2">
-        {['All', 'Hilman', 'Together'].map((s) => (
+      <div className="flex flex-wrap gap-1 px-4 pb-2">
+        {['All', ...sources].map((s) => (
           <button
             key={s}
             onClick={() => dispatch({ type: 'SET_SOURCE_FILTER', filter: s })}
-            className={`rounded-lg py-1.5 text-xs font-medium transition-colors ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               sourceFilter === s
                 ? 'bg-slate-900 text-white'
                 : 'bg-slate-100 text-slate-600'

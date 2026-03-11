@@ -22,7 +22,9 @@ import { resolveActiveMonth, isNetworkError } from '~/lib/month.server';
 import {
   selectedMonthCookie,
   selectedSourceCookie,
+  customSourcesCookie,
 } from '~/lib/cookies.server';
+import { SOURCES } from '~/lib/constants';
 import {
   addPendingExpense,
   getPendingCount,
@@ -73,13 +75,18 @@ export async function loader({ request }: Route.LoaderArgs) {
   const cookieHeader = request.headers.get('Cookie');
   const cookieMonth = await selectedMonthCookie.parse(cookieHeader);
   const cookieSource = await selectedSourceCookie.parse(cookieHeader);
+  const rawSources = await customSourcesCookie.parse(cookieHeader);
+  const sources: string[] = Array.isArray(rawSources) && rawSources.length > 0
+    ? rawSources
+    : [...SOURCES];
 
   const { months, activeMonth } = await resolveActiveMonth(cookieMonth);
 
   return data({
     months,
     activeMonth,
-    defaultSource: cookieSource ?? 'Hilman',
+    defaultSource: cookieSource ?? sources[0],
+    sources,
   });
 }
 
@@ -203,7 +210,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function Index() {
-  const { months, activeMonth, defaultSource } =
+  const { months, activeMonth, defaultSource, sources } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
     | ActionData
@@ -433,6 +440,7 @@ export default function Index() {
         amountRef={amountRef}
         selectedMonth={selectedMonth}
         defaultSource={defaultSource}
+        sources={sources}
         isOnline={isOnline}
         onOfflineSubmit={handleOfflineSubmit}
       />

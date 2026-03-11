@@ -23,3 +23,11 @@ export const selectedSourceCookie = createCookie('selected_source', {
   secure: process.env.NODE_ENV === 'production',
   httpOnly: true
 });
+
+export const customSourcesCookie = createCookie('custom_sources', {
+  maxAge: 60 * 60 * 24 * 365, // 1 year
+  path: '/',
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  httpOnly: true
+});

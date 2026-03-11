@@ -12,7 +12,7 @@ export const expenseSchema = z.object({
     .pipe(z.number().positive('Amount must be positive')),
   category: z.enum(CATEGORIES, { message: 'Pick a category' }),
   method: z.enum(METHODS, { message: 'Pick a payment method' }),
-  source: z.enum(SOURCES, { errorMap: () => ({ message: 'Select a source' }) })
+  source: z.string().min(1, 'Select a source')
 });
 
 export type ExpenseInput = z.input<typeof expenseSchema>;

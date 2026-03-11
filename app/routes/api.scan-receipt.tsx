@@ -14,14 +14,30 @@ function normalizePrivateKey(raw: string | undefined): string {
 }
 
 function getAuthClient() {
+  const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.trim();
+  if (!clientEmail) {
+    throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_EMAIL');
+  }
+
   const auth = new google.auth.GoogleAuth({
     credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      client_email: clientEmail,
       private_key: normalizePrivateKey(process.env.GOOGLE_PRIVATE_KEY),
     },
     scopes: ['https://www.googleapis.com/auth/cloud-vision'],
   });
   return auth;
+}
+
+function resolveAccessToken(
+  value: string | null | undefined | { token?: string | null },
+): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value.token === 'string' && value.token.trim().length > 0) {
+    return value.token;
+  }
+  return null;
 }
 
 // ----- Receipt text parser -----
@@ -163,7 +179,17 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     const auth = getAuthClient();
-    const token = await auth.getAccessToken();
+    const accessToken = await auth.getAccessToken();
+    const token = resolveAccessToken(
+      accessToken as string | null | undefined | { token?: string | null },
+    );
+
+    if (!token) {
+      return Response.json(
+        { error: 'Failed to get Google access token for Vision API' },
+        { status: 500 },
+      );
+    }
 
     const visionRes = await fetch(
       'https://vision.googleapis.com/v1/images:annotate',
@@ -196,6 +222,7 @@ export async function action({ request }: Route.ActionArgs) {
     const visionData = await visionRes.json() as {
       responses?: Array<{
         fullTextAnnotation?: { text?: string };
+        textAnnotations?: Array<{ description?: string }>;
         error?: { message?: string };
       }>;
     };
@@ -208,7 +235,10 @@ export async function action({ request }: Route.ActionArgs) {
       );
     }
 
-    const rawText = visionData.responses?.[0]?.fullTextAnnotation?.text ?? '';
+    const rawText =
+      visionData.responses?.[0]?.fullTextAnnotation?.text ??
+      visionData.responses?.[0]?.textAnnotations?.[0]?.description ??
+      '';
 
     if (!rawText) {
       return Response.json({ error: 'No text detected on receipt' }, { status: 422 });
@@ -218,9 +248,23 @@ export async function action({ request }: Route.ActionArgs) {
 
     return Response.json({ ...parsed, ok: true });
   } catch (err) {
-    console.error('scan-receipt error:', err);
+    const message = (err as Error).message ?? 'Unknown scan error';
+    console.error('scan-receipt error:', message);
+
+    const lowered = message.toLowerCase();
+    const mappedError =
+      lowered.includes('missing google_private_key') ||
+      lowered.includes('missing google_service_account_email')
+        ? 'Google Vision credentials are missing on server'
+        : lowered.includes('api has not been used') ||
+            lowered.includes('vision.googleapis.com')
+          ? 'Cloud Vision API is not enabled on the Google Cloud project'
+          : lowered.includes('permission') || lowered.includes('forbidden')
+            ? 'Service account has no permission to use Vision API'
+            : 'Server error while scanning receipt';
+
     return Response.json(
-      { error: 'Server error while scanning receipt' },
+      { error: mappedError, detail: message },
       { status: 500 },
     );
   }

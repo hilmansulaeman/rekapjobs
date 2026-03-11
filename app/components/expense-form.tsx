@@ -107,11 +107,14 @@ export function ExpenseForm({
       const res = await fetch('/api/scan-receipt', { method: 'POST', body: fd });
       const json = await res.json() as {
         ok?: boolean; error?: string;
+        detail?: string;
         amount?: string; item?: string; date?: string;
       };
 
       if (!res.ok || !json.ok) {
-        toast.error(json.error ?? 'Gagal membaca struk');
+        const message = json.error ?? 'Gagal membaca struk';
+        const detail = json.detail?.trim();
+        toast.error(detail ? `${message}: ${detail}` : message);
         dispatch({ type: 'set_scanning', value: false });
         return;
       }

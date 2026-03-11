@@ -88,6 +88,12 @@ export function buildGoogleRedirectUri(requestUrl: string) {
   return `${url.origin}/auth/google/callback`;
 }
 
+export function getOAuthRedirectUriForRequest(requestUrl: string) {
+  const configured = process.env.GOOGLE_OAUTH_REDIRECT_URI?.trim();
+  if (configured) return configured;
+  return buildGoogleRedirectUri(requestUrl);
+}
+
 export function getGoogleAuthUrl(state: string, redirectUri?: string) {
   const client = getGoogleOAuthClient(redirectUri);
   return client.generateAuthUrl({

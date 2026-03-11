@@ -6,8 +6,8 @@ import {
   readOAuthState,
 } from '~/lib/auth.server';
 import {
-  buildGoogleRedirectUri,
   getGoogleProfileFromCode,
+  getOAuthRedirectUriForRequest,
 } from '~/lib/google.server';
 import { log } from '~/lib/logger.server';
 import { getOrCreateProvisionedUser } from '~/lib/user-spreadsheets.server';
@@ -32,17 +32,25 @@ export async function loader({ request }: Route.LoaderArgs) {
   try {
     const profile = await getGoogleProfileFromCode(
       code,
-      buildGoogleRedirectUri(request.url),
+      getOAuthRedirectUriForRequest(request.url),
     );
     const user = await getOrCreateProvisionedUser(profile);
     const response = await createUserSession(request, user);
     response.headers.append('Set-Cookie', clearCookie);
     return response;
   } catch (error) {
+    const message = (error as Error).message.toLowerCase();
+    const mappedError =
+      message.includes('caller does not have permission') ||
+      message.includes('permission denied')
+        ? 'master_sheet_permission'
+        : 'google_login_failed';
+
     log('error', 'google_login_failed', {
       error: (error as Error).message,
+      mappedError,
     });
 
-    throw redirectToLogin('google_login_failed');
+    throw redirectToLogin(mappedError);
   }
 }

@@ -5,8 +5,8 @@ import {
   serializeOAuthStateCookie,
 } from '~/lib/auth.server';
 import {
-  buildGoogleRedirectUri,
   getGoogleAuthUrl,
+  getOAuthRedirectUriForRequest,
 } from '~/lib/google.server';
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -17,7 +17,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const state = crypto.randomUUID();
   const authUrl = getGoogleAuthUrl(
     state,
-    buildGoogleRedirectUri(request.url),
+    getOAuthRedirectUriForRequest(request.url),
   );
 
   throw redirect(authUrl, {

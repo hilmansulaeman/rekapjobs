@@ -21,6 +21,8 @@ export default function Login() {
       ? 'Login session expired. Please try again.'
       : error === 'google_login_failed'
         ? 'Google login failed. Please try again.'
+        : error === 'master_sheet_permission'
+          ? 'Google login success, but provisioning failed: share your Master Spreadsheet to service account email (Editor access), then try again.'
         : error === 'google_oauth_cancelled'
           ? 'Google login was cancelled.'
           : null;

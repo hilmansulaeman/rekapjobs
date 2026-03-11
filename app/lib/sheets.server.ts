@@ -21,6 +21,17 @@ const RECAP_HEADERS = [
   'Total',
 ] as const;
 
+function parseAmountCell(value: unknown): number {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 0;
+
+  const normalized = raw.replace(/[^\d-]/g, '');
+  if (!normalized || normalized === '-') return 0;
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export async function getAvailableMonths(
   spreadsheetId: string,
 ): Promise<string[]> {
@@ -137,10 +148,7 @@ export async function getExpenseTotalByMonth(
 ): Promise<number> {
   try {
     const rows = await getExpensesByMonth(spreadsheetId, month);
-    return rows.reduce((sum, row) => {
-      const amount = Number((row[3] ?? '').toString().replace(/,/g, ''));
-      return Number.isFinite(amount) ? sum + amount : sum;
-    }, 0);
+    return rows.reduce((sum, row) => sum + parseAmountCell(row[3]), 0);
   } catch (err) {
     const message = (err as { message?: string })?.message ?? '';
     if (
@@ -202,6 +210,64 @@ export async function appendRecap(
   });
 }
 
+export type RecapSheetRow = {
+  rowNumber: number;
+  values: string[];
+};
+
+function getJakartaTimestamp() {
+  const now = new Date();
+  const jakartaDate = new Date(
+    now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }),
+  );
+
+  return `${jakartaDate.getMonth() + 1}/${jakartaDate.getDate()}/${jakartaDate.getFullYear()} ${String(jakartaDate.getHours()).padStart(2, '0')}:${String(jakartaDate.getMinutes()).padStart(2, '0')}:${String(jakartaDate.getSeconds()).padStart(2, '0')}`;
+}
+
+async function getRecapRowsByMonth(
+  spreadsheetId: string,
+  month: string,
+): Promise<RecapSheetRow[]> {
+  const sheets = getServiceSheetsClient();
+  await ensureRecapSheet(spreadsheetId);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${RECAP_SHEET_TITLE}'!A:F`,
+  });
+
+  const values = res.data.values ?? [];
+  const matches: RecapSheetRow[] = [];
+
+  for (let index = 1; index < values.length; index += 1) {
+    const row = values[index] ?? [];
+    if ((row[1] ?? '') === month) {
+      matches.push({
+        rowNumber: index + 1,
+        values: row as string[],
+      });
+    }
+  }
+
+  return matches;
+}
+
+async function clearRecapRows(
+  spreadsheetId: string,
+  rowNumbers: number[],
+): Promise<void> {
+  if (rowNumbers.length === 0) return;
+
+  const sheets = getServiceSheetsClient();
+  await sheets.spreadsheets.values.batchClear({
+    spreadsheetId,
+    requestBody: {
+      ranges: rowNumbers.map(
+        (rowNumber) => `'${RECAP_SHEET_TITLE}'!A${rowNumber}:F${rowNumber}`,
+      ),
+    },
+  });
+}
+
 export async function getRecapByMonth(
   spreadsheetId: string,
   month: string,
@@ -217,4 +283,65 @@ export async function getRecapByMonth(
   const rows = values.slice(1);
   const filtered = rows.filter((row) => (row[1] ?? '') === month);
   return filtered.reverse() as string[][];
+}
+
+export async function getLatestRecapRowByMonth(
+  spreadsheetId: string,
+  month: string,
+): Promise<RecapSheetRow | null> {
+  const rows = await getRecapRowsByMonth(spreadsheetId, month);
+  return rows.length > 0 ? rows[rows.length - 1] : null;
+}
+
+export async function upsertRecapByMonth(
+  spreadsheetId: string,
+  month: string,
+  row: string[],
+): Promise<void> {
+  const sheets = getServiceSheetsClient();
+  await ensureRecapSheet(spreadsheetId);
+
+  const existing = await getLatestRecapRowByMonth(spreadsheetId, month);
+
+  if (existing) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${RECAP_SHEET_TITLE}'!A${existing.rowNumber}:F${existing.rowNumber}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [row] },
+    });
+
+    const duplicates = await getRecapRowsByMonth(spreadsheetId, month);
+    await clearRecapRows(
+      spreadsheetId,
+      duplicates
+        .filter((entry) => entry.rowNumber !== existing.rowNumber)
+        .map((entry) => entry.rowNumber),
+    );
+    return;
+  }
+
+  await appendRecap(spreadsheetId, row);
+}
+
+export async function syncRecapByMonth(
+  spreadsheetId: string,
+  month: string,
+): Promise<void> {
+  const latest = await getLatestRecapRowByMonth(spreadsheetId, month);
+  if (!latest) return;
+
+  const income = parseAmountCell(latest.values[2]);
+  const savings = parseAmountCell(latest.values[4]);
+  const expense = await getExpenseTotalByMonth(spreadsheetId, month);
+  const total = income - expense - savings;
+
+  await upsertRecapByMonth(spreadsheetId, month, [
+    getJakartaTimestamp(),
+    month,
+    String(income),
+    String(expense),
+    String(savings),
+    String(total),
+  ]);
 }

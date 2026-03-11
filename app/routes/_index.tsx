@@ -10,6 +10,7 @@ import {
 import type { Route } from './+types/_index';
 import {
   appendExpense,
+  syncRecapByMonth,
 } from '~/lib/sheets.server';
 import { expenseSchema } from '~/lib/validation';
 import { ExpenseForm } from '~/components/expense-form';
@@ -141,6 +142,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     await appendExpense(user.spreadsheetId, parsed.month, row);
+    await syncRecapByMonth(user.spreadsheetId, parsed.month);
     const headers = new Headers();
     headers.append(
       'Set-Cookie',

@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import {
   data,
   Form,
+  redirect,
   useActionData,
   useLoaderData,
   useNavigation,
@@ -9,9 +10,9 @@ import {
 import type { Route } from './+types/recap';
 import { requireAuth } from '~/lib/auth.server';
 import {
-  appendRecap,
   getExpenseTotalByMonth,
-  getRecapByMonth,
+  getLatestRecapRowByMonth,
+  upsertRecapByMonth,
 } from '~/lib/sheets.server';
 
 type RecapRow = {
@@ -22,6 +23,17 @@ type RecapRow = {
   savings: number;
   total: number;
 };
+
+function parseAmount(value: unknown) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 0;
+
+  const normalized = raw.replace(/[^\d-]/g, '');
+  if (!normalized || normalized === '-') return 0;
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 function getCurrentMonth() {
   const formatter = new Intl.DateTimeFormat('en-CA', {
@@ -46,18 +58,21 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const month = url.searchParams.get('month') ?? getCurrentMonth();
 
-  const rows = await getRecapByMonth(user.spreadsheetId, month);
+  const savedRow = await getLatestRecapRowByMonth(user.spreadsheetId, month);
   const expenseTotal = await getExpenseTotalByMonth(user.spreadsheetId, month);
-  const entries: RecapRow[] = rows.map((row) => ({
-    timestamp: row[0] ?? '',
-    month: row[1] ?? month,
-    income: Number(row[2]) || 0,
-    expense: Number(row[3]) || 0,
-    savings: Number(row[4]) || 0,
-    total: Number(row[5]) || 0,
-  }));
+  const savedEntry: RecapRow | null = savedRow
+    ? {
+        timestamp: savedRow.values[0] ?? '',
+        month: savedRow.values[1] ?? month,
+        income: parseAmount(savedRow.values[2]),
+        expense: expenseTotal,
+        savings: parseAmount(savedRow.values[4]),
+        total:
+          parseAmount(savedRow.values[2]) - expenseTotal - parseAmount(savedRow.values[4]),
+      }
+    : null;
 
-  return data({ month, entries, expenseTotal });
+  return data({ month, savedEntry, expenseTotal });
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -84,7 +99,7 @@ export async function action({ request }: Route.ActionArgs) {
   );
   const timestamp = `${jakartaDate.getMonth() + 1}/${jakartaDate.getDate()}/${jakartaDate.getFullYear()} ${String(jakartaDate.getHours()).padStart(2, '0')}:${String(jakartaDate.getMinutes()).padStart(2, '0')}:${String(jakartaDate.getSeconds()).padStart(2, '0')}`;
 
-  await appendRecap(user.spreadsheetId, [
+  await upsertRecapByMonth(user.spreadsheetId, month, [
     timestamp,
     month,
     String(income),
@@ -93,27 +108,23 @@ export async function action({ request }: Route.ActionArgs) {
     String(total),
   ]);
 
-  return data({ success: true as const, month, total, expense });
+  return redirect(`/recap?month=${month}`);
 }
 
 export default function Recap() {
-  const { month, entries, expenseTotal } = useLoaderData<typeof loader>();
+  const { month, savedEntry, expenseTotal } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
-    | { success?: boolean; error?: string; month?: string; total?: number; expense?: number }
+    | { error?: string }
     | undefined;
   const navigation = useNavigation();
   const isSubmitting = navigation.state === 'submitting';
 
-  const latest = entries[0];
-  const displayTotal = useMemo(() => {
-    if (actionData?.success && typeof actionData.total === 'number') return actionData.total;
-    return latest?.total ?? 0;
-  }, [actionData, latest]);
+  const displayTotal = useMemo(() => savedEntry?.total ?? 0, [savedEntry]);
+  const displayExpense = useMemo(() => expenseTotal, [expenseTotal]);
 
-  const displayExpense = useMemo(() => {
-    if (actionData?.success && typeof actionData.expense === 'number') return actionData.expense;
-    return expenseTotal;
-  }, [actionData, expenseTotal]);
+  const defaultIncome = savedEntry?.income;
+  const defaultSavings = savedEntry?.savings;
+  const submitLabel = savedEntry ? 'Update Rekap' : 'Simpan Rekap';
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col bg-white px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-24">
@@ -129,7 +140,7 @@ export default function Recap() {
         <input
           type="month"
           name="month"
-          defaultValue={actionData?.month ?? month}
+          defaultValue={month}
           required
           disabled={isSubmitting}
           className="w-full rounded-lg border-2 border-slate-200 px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-slate-900 disabled:opacity-50"
@@ -141,6 +152,7 @@ export default function Recap() {
           min="0"
           step="1"
           name="income"
+          defaultValue={defaultIncome}
           required
           disabled={isSubmitting}
           className="w-full rounded-lg border-2 border-slate-200 px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-slate-900 disabled:opacity-50"
@@ -164,6 +176,7 @@ export default function Recap() {
           min="0"
           step="1"
           name="savings"
+          defaultValue={defaultSavings}
           required
           disabled={isSubmitting}
           className="w-full rounded-lg border-2 border-slate-200 px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-slate-900 disabled:opacity-50"
@@ -180,37 +193,33 @@ export default function Recap() {
           disabled={isSubmitting}
           className="w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white disabled:opacity-50"
         >
-          {isSubmitting ? 'Menyimpan...' : 'Simpan Rekap'}
+          {isSubmitting ? 'Menyimpan...' : submitLabel}
         </button>
       </Form>
 
       <section className="mt-4 rounded-xl border border-slate-200 p-4">
-        <h2 className="mb-2 text-sm font-semibold text-slate-900">Riwayat bulan {month}</h2>
-        {entries.length === 0 ? (
-          <p className="text-xs text-slate-500">Belum ada data rekap.</p>
+        <h2 className="mb-2 text-sm font-semibold text-slate-900">Rekap bulan {month}</h2>
+        {!savedEntry ? (
+          <p className="text-xs text-slate-500">Belum ada pendapatan/tabungan tersimpan untuk bulan ini.</p>
         ) : (
-          <ul className="space-y-2">
-            {entries.slice(0, 8).map((entry) => (
-              <li key={`${entry.timestamp}-${entry.total}`} className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                <div className="flex justify-between">
-                  <span>Pendapatan</span>
-                  <span>IDR {entry.income.toLocaleString('id-ID')}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Pengeluaran</span>
-                  <span>IDR {entry.expense.toLocaleString('id-ID')}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Tabungan</span>
-                  <span>IDR {entry.savings.toLocaleString('id-ID')}</span>
-                </div>
-                <div className="mt-1 flex justify-between font-semibold text-slate-900">
-                  <span>Total</span>
-                  <span>IDR {entry.total.toLocaleString('id-ID')}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
+            <div className="flex justify-between">
+              <span>Pendapatan</span>
+              <span>IDR {savedEntry.income.toLocaleString('id-ID')}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Pengeluaran</span>
+              <span>IDR {displayExpense.toLocaleString('id-ID')}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Tabungan</span>
+              <span>IDR {savedEntry.savings.toLocaleString('id-ID')}</span>
+            </div>
+            <div className="mt-1 flex justify-between font-semibold text-slate-900">
+              <span>Total</span>
+              <span>IDR {displayTotal.toLocaleString('id-ID')}</span>
+            </div>
+          </div>
         )}
       </section>
     </main>

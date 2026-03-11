@@ -2,7 +2,7 @@ import { data } from "react-router";
 import type { Route } from "./+types/api.sync";
 import { requireAuth } from "~/lib/auth.server";
 import { expenseSchema } from "~/lib/validation";
-import { appendExpense } from "~/lib/sheets.server";
+import { appendExpense, syncRecapByMonth } from "~/lib/sheets.server";
 import { log } from "~/lib/logger.server";
 
 export async function action({ request }: Route.ActionArgs) {
@@ -39,6 +39,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     await appendExpense(user.spreadsheetId, parsed.month, row);
+    await syncRecapByMonth(user.spreadsheetId, parsed.month);
     log("info", "offline_expense_synced", {
       source: parsed.source,
       category: parsed.category,

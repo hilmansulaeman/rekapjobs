@@ -4,7 +4,10 @@ import {
   isAuthenticated,
   serializeOAuthStateCookie,
 } from '~/lib/auth.server';
-import { getGoogleAuthUrl } from '~/lib/google.server';
+import {
+  buildGoogleRedirectUri,
+  getGoogleAuthUrl,
+} from '~/lib/google.server';
 
 export async function loader({ request }: Route.LoaderArgs) {
   if (await isAuthenticated(request)) {
@@ -12,7 +15,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const state = crypto.randomUUID();
-  const authUrl = getGoogleAuthUrl(state);
+  const authUrl = getGoogleAuthUrl(
+    state,
+    buildGoogleRedirectUri(request.url),
+  );
 
   throw redirect(authUrl, {
     headers: {

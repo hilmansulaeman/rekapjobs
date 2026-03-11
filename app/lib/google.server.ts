@@ -65,22 +65,31 @@ export function getServiceDriveClient() {
   return serviceDrive;
 }
 
-export function getGoogleOAuthClient() {
+export function getGoogleOAuthClient(redirectUri?: string) {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI;
+  const fallbackRedirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI;
 
-  if (!clientId || !clientSecret || !redirectUri) {
+  if (!clientId || !clientSecret) {
     throw new Error(
-      'Missing Google OAuth config. Set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, and GOOGLE_OAUTH_REDIRECT_URI.',
+      'Missing Google OAuth config. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET.',
     );
   }
 
-  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  return new google.auth.OAuth2(
+    clientId,
+    clientSecret,
+    redirectUri ?? fallbackRedirectUri,
+  );
 }
 
-export function getGoogleAuthUrl(state: string) {
-  const client = getGoogleOAuthClient();
+export function buildGoogleRedirectUri(requestUrl: string) {
+  const url = new URL(requestUrl);
+  return `${url.origin}/auth/google/callback`;
+}
+
+export function getGoogleAuthUrl(state: string, redirectUri?: string) {
+  const client = getGoogleOAuthClient(redirectUri);
   return client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'select_account',
@@ -89,8 +98,11 @@ export function getGoogleAuthUrl(state: string) {
   });
 }
 
-export async function getGoogleProfileFromCode(code: string) {
-  const client = getGoogleOAuthClient();
+export async function getGoogleProfileFromCode(
+  code: string,
+  redirectUri?: string,
+) {
+  const client = getGoogleOAuthClient(redirectUri);
   const { tokens } = await client.getToken(code);
   client.setCredentials(tokens);
 

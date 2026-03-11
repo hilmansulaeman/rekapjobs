@@ -5,7 +5,10 @@ import {
   createUserSession,
   readOAuthState,
 } from '~/lib/auth.server';
-import { getGoogleProfileFromCode } from '~/lib/google.server';
+import {
+  buildGoogleRedirectUri,
+  getGoogleProfileFromCode,
+} from '~/lib/google.server';
 import { log } from '~/lib/logger.server';
 import { getOrCreateProvisionedUser } from '~/lib/user-spreadsheets.server';
 
@@ -27,7 +30,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   try {
-    const profile = await getGoogleProfileFromCode(code);
+    const profile = await getGoogleProfileFromCode(
+      code,
+      buildGoogleRedirectUri(request.url),
+    );
     const user = await getOrCreateProvisionedUser(profile);
     const response = await createUserSession(request, user);
     response.headers.append('Set-Cookie', clearCookie);

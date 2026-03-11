@@ -63,6 +63,16 @@ export async function loader({ request }: Route.LoaderArgs) {
     const rawMessage = (error as Error).message;
     const message = rawMessage.toLowerCase();
     const mappedError =
+      message.includes('redirect_uri_mismatch')
+        ? 'google_oauth_redirect_mismatch'
+        : message.includes('access_denied') ||
+          message.includes('oauth_denied')
+          ? 'google_oauth_cancelled'
+          : message.includes('missing google oauth config') ||
+            message.includes('google_oauth_client_id') ||
+            message.includes('google_oauth_client_secret')
+            ? 'google_oauth_config'
+            :
       message.includes('failed to create user spreadsheet') ||
       message.includes('google_user_sheets_folder_id')
         ? 'user_sheet_create_permission'

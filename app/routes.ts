@@ -7,4 +7,5 @@ export default [
   route('login', 'routes/login.tsx'),
   route('offline', 'routes/offline.tsx'),
   route('api/sync', 'routes/api.sync.tsx'),
+  route('api/scan-receipt', 'routes/api.scan-receipt.tsx'),
 ] satisfies RouteConfig;

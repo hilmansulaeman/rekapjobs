@@ -1,8 +1,8 @@
-import React, { useReducer, type RefObject } from 'react';
+import React, { useReducer, useRef, type RefObject } from 'react';
 import { toast } from 'sonner';
 import { Form } from 'react-router';
 import { endOfMonth, format } from 'date-fns';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, ScanLine } from 'lucide-react';
 import { CATEGORIES, METHODS, SOURCES } from '~/lib/constants';
 import { Calendar } from '~/components/ui/calendar';
 import {
@@ -34,12 +34,17 @@ type State = {
   date: Date;
   calendarOpen: boolean;
   amount: string;
+  item: string;
+  isScanning: boolean;
 };
 
 type Action =
   | { type: 'select_date'; date: Date }
   | { type: 'toggle_calendar'; open: boolean }
-  | { type: 'set_amount'; value: string };
+  | { type: 'set_amount'; value: string }
+  | { type: 'set_item'; value: string }
+  | { type: 'set_scanning'; value: boolean }
+  | { type: 'autofill'; amount?: string; item?: string; date?: Date };
 
 function formatAmount(value: string): string {
   const digits = value.replace(/\D/g, '');
@@ -54,6 +59,18 @@ function reducer(state: State, action: Action): State {
       return { ...state, calendarOpen: action.open };
     case 'set_amount':
       return { ...state, amount: formatAmount(action.value) };
+    case 'set_item':
+      return { ...state, item: action.value };
+    case 'set_scanning':
+      return { ...state, isScanning: action.value };
+    case 'autofill':
+      return {
+        ...state,
+        amount: action.amount !== undefined ? formatAmount(action.amount) : state.amount,
+        item: action.item !== undefined ? action.item : state.item,
+        date: action.date !== undefined ? action.date : state.date,
+        isScanning: false,
+      };
   }
 }
 
@@ -71,7 +88,48 @@ export function ExpenseForm({
     date: new Date(),
     calendarOpen: false,
     amount: '',
+    item: '',
+    isScanning: false,
   });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleScan(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    dispatch({ type: 'set_scanning', value: true });
+
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+
+      const res = await fetch('/api/scan-receipt', { method: 'POST', body: fd });
+      const json = await res.json() as {
+        ok?: boolean; error?: string;
+        amount?: string; item?: string; date?: string;
+      };
+
+      if (!res.ok || !json.ok) {
+        toast.error(json.error ?? 'Gagal membaca struk');
+        dispatch({ type: 'set_scanning', value: false });
+        return;
+      }
+
+      dispatch({
+        type: 'autofill',
+        amount: json.amount,
+        item: json.item,
+        date: json.date ? new Date(json.date) : undefined,
+      });
+      toast.success('Struk berhasil dibaca!');
+    } catch {
+      toast.error('Gagal menghubungi server scan');
+      dispatch({ type: 'set_scanning', value: false });
+    } finally {
+      e.target.value = '';
+    }
+  }
 
   const maxDate = selectedMonth
     ? endOfMonth(new Date(selectedMonth + '-01'))
@@ -126,6 +184,38 @@ export function ExpenseForm({
       {selectedMonth && (
         <input type="hidden" name="month" value={selectedMonth} />
       )}
+
+      {/* Scan Receipt */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        onChange={handleScan}
+      />
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={state.isScanning}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-700 disabled:opacity-50"
+      >
+        {state.isScanning ? (
+          <>
+            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Membaca struk...
+          </>
+        ) : (
+          <>
+            <ScanLine className="h-4 w-4" />
+            Scan Struk
+          </>
+        )}
+      </button>
+
       {/* Amount */}
       <fieldset>
         <div className="flex items-center gap-2 rounded-xl border-2 border-slate-200 px-4 py-3 focus-within:border-slate-900">
@@ -164,6 +254,8 @@ export function ExpenseForm({
           name="item"
           placeholder="What did you buy?"
           maxLength={100}
+          value={state.item}
+          onChange={(e) => dispatch({ type: 'set_item', value: e.target.value })}
           className="w-full rounded-lg border-2 border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-slate-900"
         />
         {errors?.item && (

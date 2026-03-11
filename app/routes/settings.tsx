@@ -75,6 +75,14 @@ export default function Settings() {
             Open My Spreadsheet
           </a>
         )}
+        <Form method="post" action="/logout" className="mt-3">
+          <button
+            type="submit"
+            className="inline-flex rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+          >
+            Logout
+          </button>
+        </Form>
       </section>
 
       {/* Paid From Sources */}

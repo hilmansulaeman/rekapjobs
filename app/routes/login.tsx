@@ -9,7 +9,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (await isAuthenticated(request)) {
     throw redirect('/');
   }
-  const error = new URL(request.url).searchParams.get('error');
+  const url = new URL(request.url);
+  const error = url.searchParams.get('error');
   return { error };
 }
 
@@ -19,8 +20,12 @@ export default function Login() {
   const errorMessage =
     error === 'invalid_google_state'
       ? 'Login session expired. Please try again.'
+      : error === 'unauthorized_account'
+        ? 'This Google account is not allowed to access the app.'
       : error === 'google_login_failed'
         ? 'Google login failed. Please try again.'
+        : error === 'user_sheet_create_permission'
+          ? 'Google login success, but creating personal spreadsheet failed. Set GOOGLE_USER_SHEETS_FOLDER_ID to a Drive folder shared to service account as Editor.'
         : error === 'master_sheet_permission'
           ? 'Google login success, but provisioning failed: share your Master Spreadsheet to service account email (Editor access), then try again.'
         : error === 'google_oauth_cancelled'
@@ -34,12 +39,12 @@ export default function Login() {
           DuitLog
         </h1>
         <p className="mb-6 text-center text-sm text-slate-500">
-          Login with Google. A personal spreadsheet will be created automatically on first sign-in.
+          Login with Google. On first sign-in, you will connect your own spreadsheet once.
         </p>
         {errorMessage && (
-          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700">
-            {errorMessage}
-          </p>
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700">
+            <p>{errorMessage}</p>
+          </div>
         )}
         <a
           href="/auth/google"

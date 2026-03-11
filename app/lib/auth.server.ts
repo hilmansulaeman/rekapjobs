@@ -32,8 +32,44 @@ const oauthStateCookie = createCookie('duitlog_oauth_state', {
   secure: process.env.NODE_ENV === 'production',
 });
 
+type PendingGoogleProfile = {
+  email: string;
+  name: string;
+  picture?: string;
+};
+
+const pendingGoogleProfileCookie = createCookie('duitlog_pending_google_profile', {
+  httpOnly: true,
+  maxAge: 60 * 10,
+  path: '/',
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  secrets: [process.env.SESSION_SECRET!],
+});
+
 function getSession(request: Request) {
   return sessionStorage.getSession(request.headers.get('Cookie'));
+}
+
+export function isAllowedGoogleAccount(email: string) {
+  const allowedEmails = (process.env.ALLOWED_GOOGLE_EMAILS ?? '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const allowedDomain = (process.env.ALLOWED_GOOGLE_DOMAIN ?? '')
+    .trim()
+    .toLowerCase();
+
+  const normalizedEmail = email.trim().toLowerCase();
+  if (allowedEmails.length > 0) {
+    return allowedEmails.includes(normalizedEmail);
+  }
+
+  if (allowedDomain) {
+    return normalizedEmail.endsWith(`@${allowedDomain}`);
+  }
+
+  return true;
 }
 
 function readSessionUser(session: Awaited<ReturnType<typeof getSession>>): SessionUser | null {
@@ -94,6 +130,43 @@ export async function readOAuthState(request: Request): Promise<string | null> {
 
 export async function clearOAuthStateCookie() {
   return oauthStateCookie.serialize('', { maxAge: 0 });
+}
+
+export async function serializePendingGoogleProfileCookie(
+  profile: PendingGoogleProfile,
+) {
+  return pendingGoogleProfileCookie.serialize(profile);
+}
+
+export async function readPendingGoogleProfile(
+  request: Request,
+): Promise<PendingGoogleProfile | null> {
+  const parsed = await pendingGoogleProfileCookie.parse(
+    request.headers.get('Cookie'),
+  );
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  const email = (parsed as Record<string, unknown>).email;
+  const name = (parsed as Record<string, unknown>).name;
+  const picture = (parsed as Record<string, unknown>).picture;
+
+  if (typeof email !== 'string' || typeof name !== 'string') return null;
+  return {
+    email,
+    name,
+    picture: typeof picture === 'string' ? picture : undefined,
+  };
+}
+
+export async function clearPendingGoogleProfileCookie() {
+  return pendingGoogleProfileCookie.serialize('', { maxAge: 0 });
+}
+
+export async function destroyUserSession(request: Request) {
+  const session = await getSession(request);
+  return redirect('/login', {
+    headers: { 'Set-Cookie': await sessionStorage.destroySession(session) },
+  });
 }
 
 export async function requireAuth(request: Request): Promise<SessionUser> {

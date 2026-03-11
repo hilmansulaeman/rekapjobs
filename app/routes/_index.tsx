@@ -79,7 +79,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   return data({
     months,
     activeMonth,
-    defaultSource: cookieSource ?? 'Danny',
+    defaultSource: cookieSource ?? 'Hilman',
   });
 }
 
@@ -90,7 +90,7 @@ export async function action({ request }: Route.ActionArgs) {
     month: formData.get('month') as string,
     item: formData.get('item') as string,
     date: formData.get('date') as string,
-    amount: formData.get('amount') as string,
+    amount: ((formData.get('amount') as string) ?? '').replace(/,/g, ''),
     category: formData.get('category') as string,
     method: formData.get('method') as string,
     source: formData.get('source') as string,

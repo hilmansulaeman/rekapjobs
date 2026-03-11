@@ -4,14 +4,51 @@ import { log } from './logger.server';
 // Singleton — reuse across requests in the same server instance
 let _sheets: ReturnType<typeof google.sheets> | null = null;
 
+function normalizePrivateKey(raw: string | undefined): string {
+  if (!raw) {
+    throw new Error(
+      'Missing GOOGLE_PRIVATE_KEY. Set it in .env using the service account private key.'
+    );
+  }
+
+  const trimmed = raw.trim();
+  const unquoted =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+      ? trimmed.slice(1, -1)
+      : trimmed;
+
+  const normalized = unquoted.replace(/\\n/g, '\n');
+
+  if (
+    !normalized.includes('-----BEGIN PRIVATE KEY-----') ||
+    normalized.includes('REPLACE_WITH_YOUR_KEY')
+  ) {
+    throw new Error(
+      'Invalid GOOGLE_PRIVATE_KEY. Use the real service account key from Google Cloud JSON (single line with literal \\n in .env).'
+    );
+  }
+
+  return normalized;
+}
+
 function getSheetsClient() {
   if (_sheets) return _sheets;
 
+  const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+
+  if (!serviceAccountEmail || serviceAccountEmail.includes('your-service-account')) {
+    throw new Error(
+      'Invalid GOOGLE_SERVICE_ACCOUNT_EMAIL. Set it to your real service account email in .env.'
+    );
+  }
+
+  const privateKey = normalizePrivateKey(process.env.GOOGLE_PRIVATE_KEY);
+
   const auth = new google.auth.GoogleAuth({
     credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      // The private key is stored with literal \n in the env var; replace with real newlines
-      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+      client_email: serviceAccountEmail,
+      private_key: privateKey
     },
     scopes: ['https://www.googleapis.com/auth/spreadsheets']
   });

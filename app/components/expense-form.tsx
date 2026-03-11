@@ -83,7 +83,8 @@ export function ExpenseForm({
     const formData = new FormData(form);
 
     // Basic client-side validation for offline entries
-    const amount = formData.get('amount') as string;
+    const rawAmount = formData.get('amount') as string;
+    const amount = rawAmount?.replace(/,/g, '') ?? '';
     const category = formData.get('category') as string;
     const method = formData.get('method') as string;
     const source = formData.get('source') as string;
@@ -108,6 +109,9 @@ export function ExpenseForm({
       return;
     }
 
+    // Replace formatted amount with raw digits in formData before passing to handler
+    formData.set('amount', amount);
+
     onOfflineSubmit?.(formData);
   }
 
@@ -127,14 +131,10 @@ export function ExpenseForm({
             IDR
           </span>
           <input
-            type="hidden"
-            name="amount"
-            value={state.amount.replace(/,/g, '')}
-          />
-          <input
             ref={amountRef}
             type="text"
             inputMode="decimal"
+            name="amount"
             placeholder="0"
             autoFocus
             value={state.amount}
@@ -281,7 +281,7 @@ export function ExpenseForm({
                 type="radio"
                 name="source"
                 value={s}
-                defaultChecked={s === (defaultSource ?? 'Danny')}
+                defaultChecked={s === (defaultSource ?? 'Hilman')}
                 className="peer sr-only"
               />
               <div className="rounded-lg bg-slate-100 py-2 text-center text-xs font-medium text-slate-600 transition-colors peer-checked:bg-slate-900 peer-checked:text-white">

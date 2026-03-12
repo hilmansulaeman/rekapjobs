@@ -9,14 +9,17 @@ const USER_HEADERS = [
   'Spreadsheet ID',
   'Created At',
 ] as const;
-const EXPENSE_HEADERS = [
+const APPLICATIONS_TAB_TITLE = 'Applications';
+const APPLICATION_HEADERS = [
   'Timestamp',
-  'Item',
-  'Category',
-  'Amount',
-  'Method',
-  'Date',
-  'Source',
+  'Role',
+  'Status',
+  'Company',
+  'Date Applying',
+  'Applied Via',
+  'Link Jobs',
+  'Progress',
+  'Event',
 ] as const;
 
 function getUserSheetsFolderId() {
@@ -34,19 +37,12 @@ function getMasterSpreadsheetId() {
   return id;
 }
 
-function getCurrentMonth() {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta',
-    year: 'numeric',
-    month: '2-digit',
-  });
-  const parts = formatter.formatToParts(new Date());
-  const year = parts.find((part) => part.type === 'year')?.value;
-  const month = parts.find((part) => part.type === 'month')?.value;
-  if (!year || !month) {
-    throw new Error('Failed to determine current month.');
-  }
-  return `${year}-${month}`;
+function getSpreadsheetOverrideId() {
+  const raw = process.env.GOOGLE_SPREADSHEET_ID?.trim();
+  if (!raw) return null;
+
+  const parsed = extractSpreadsheetId(raw);
+  return parsed || null;
 }
 
 function getSpreadsheetUrl(spreadsheetId: string) {
@@ -66,33 +62,38 @@ function extractSpreadsheetId(input: string) {
   return '';
 }
 
-async function ensureMonthTabAndHeaders(spreadsheetId: string) {
+async function ensureApplicationsTabAndHeaders(spreadsheetId: string) {
   const sheets = getServiceSheetsClient();
-  const month = getCurrentMonth();
 
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
     fields: 'sheets.properties.title',
   });
 
-  const hasMonthTab = (meta.data.sheets ?? []).some(
-    (sheet) => sheet.properties?.title === month,
+  const hasApplicationsTab = (meta.data.sheets ?? []).some(
+    (sheet) => sheet.properties?.title === APPLICATIONS_TAB_TITLE,
   );
 
-  if (!hasMonthTab) {
+  if (!hasApplicationsTab) {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {
-        requests: [{ addSheet: { properties: { title: month } } }],
+        requests: [
+          {
+            addSheet: {
+              properties: { title: APPLICATIONS_TAB_TITLE },
+            },
+          },
+        ],
       },
     });
   }
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `'${month}'!A1:G1`,
+    range: `'${APPLICATIONS_TAB_TITLE}'!A1:I1`,
     valueInputOption: 'RAW',
-    requestBody: { values: [Array.from(EXPENSE_HEADERS)] },
+    requestBody: { values: [Array.from(APPLICATION_HEADERS)] },
   });
 }
 
@@ -177,7 +178,6 @@ async function findStoredUserByEmail(email: string): Promise<StoredUser | null> 
 async function createUserSpreadsheet(name: string, email: string) {
   const sheets = getServiceSheetsClient();
   const drive = getServiceDriveClient();
-  const month = getCurrentMonth();
 
   const folderId = getUserSheetsFolderId();
   let spreadsheetId = '';
@@ -187,7 +187,7 @@ async function createUserSpreadsheet(name: string, email: string) {
     try {
       const createdFile = await drive.files.create({
         requestBody: {
-          name: `DuitLog - ${name}`,
+          name: `Job Tracker - ${name}`,
           mimeType: 'application/vnd.google-apps.spreadsheet',
           parents: [folderId],
         },
@@ -208,15 +208,9 @@ async function createUserSpreadsheet(name: string, email: string) {
       created = await sheets.spreadsheets.create({
         requestBody: {
           properties: {
-            title: `DuitLog - ${name}`,
+            title: `Job Tracker - ${name}`,
           },
-          sheets: [
-            {
-              properties: {
-                title: month,
-              },
-            },
-          ],
+          sheets: [],
         },
       });
     } catch (error) {
@@ -238,10 +232,10 @@ async function createUserSpreadsheet(name: string, email: string) {
   }
 
   try {
-    await ensureMonthTabAndHeaders(spreadsheetId);
+    await ensureApplicationsTabAndHeaders(spreadsheetId);
   } catch (error) {
     throw new Error(
-      `Failed to initialize user spreadsheet month/header. Original error: ${(error as Error).message}`,
+      `Failed to initialize user spreadsheet headers. Original error: ${(error as Error).message}`,
     );
   }
 
@@ -270,6 +264,7 @@ export async function getProvisionedUserByEmail(profile: {
   name: string;
   picture?: string;
 }): Promise<SessionUser | null> {
+  const overrideSpreadsheetId = getSpreadsheetOverrideId();
   let existing: StoredUser | null = null;
   try {
     existing = await findStoredUserByEmail(profile.email);
@@ -277,6 +272,37 @@ export async function getProvisionedUserByEmail(profile: {
     throw new Error(
       `Failed to read user mapping from master sheet. ${(error as Error).message}`,
     );
+  }
+
+  if (overrideSpreadsheetId) {
+    try {
+      await ensureApplicationsTabAndHeaders(overrideSpreadsheetId);
+    } catch (error) {
+      throw new Error(
+        `Cannot use GOOGLE_SPREADSHEET_ID (${overrideSpreadsheetId}). Share it to ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL} with Editor access. Original error: ${(error as Error).message}`,
+      );
+    }
+
+    try {
+      await upsertStoredUser({
+        rowNumber: existing?.rowNumber,
+        email: profile.email,
+        name: profile.name,
+        spreadsheetId: overrideSpreadsheetId,
+      });
+    } catch (error) {
+      throw new Error(
+        `Failed to update user mapping in master sheet. ${(error as Error).message}`,
+      );
+    }
+
+    return {
+      email: profile.email,
+      name: profile.name,
+      picture: profile.picture,
+      spreadsheetId: overrideSpreadsheetId,
+      spreadsheetUrl: getSpreadsheetUrl(overrideSpreadsheetId),
+    };
   }
 
   if (!existing?.spreadsheetId) {
@@ -328,10 +354,10 @@ export async function linkSpreadsheetForUser(profile: {
   }
 
   try {
-    await ensureMonthTabAndHeaders(spreadsheetId);
+    await ensureApplicationsTabAndHeaders(spreadsheetId);
   } catch (error) {
     throw new Error(
-      `Failed to prepare monthly tab/header in provided spreadsheet. ${(error as Error).message}`,
+      `Failed to prepare application headers in provided spreadsheet. ${(error as Error).message}`,
     );
   }
 
@@ -398,6 +424,7 @@ export async function getOrCreateProvisionedUser(profile: {
   name: string;
   picture?: string;
 }): Promise<SessionUser> {
+  const overrideSpreadsheetId = getSpreadsheetOverrideId();
   let existing: StoredUser | null = null;
   try {
     existing = await findStoredUserByEmail(profile.email);
@@ -405,6 +432,37 @@ export async function getOrCreateProvisionedUser(profile: {
     throw new Error(
       `Failed to read user mapping from master sheet. ${(error as Error).message}`,
     );
+  }
+
+  if (overrideSpreadsheetId) {
+    try {
+      await ensureApplicationsTabAndHeaders(overrideSpreadsheetId);
+    } catch (error) {
+      throw new Error(
+        `Cannot use GOOGLE_SPREADSHEET_ID (${overrideSpreadsheetId}). Share it to ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL} with Editor access. Original error: ${(error as Error).message}`,
+      );
+    }
+
+    try {
+      await upsertStoredUser({
+        rowNumber: existing?.rowNumber,
+        email: profile.email,
+        name: profile.name,
+        spreadsheetId: overrideSpreadsheetId,
+      });
+    } catch (error) {
+      throw new Error(
+        `Failed to update user mapping in master sheet. ${(error as Error).message}`,
+      );
+    }
+
+    return {
+      email: profile.email,
+      name: profile.name,
+      picture: profile.picture,
+      spreadsheetId: overrideSpreadsheetId,
+      spreadsheetUrl: getSpreadsheetUrl(overrideSpreadsheetId),
+    };
   }
 
   if (existing?.spreadsheetId) {

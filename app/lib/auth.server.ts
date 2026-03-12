@@ -47,6 +47,27 @@ const pendingGoogleProfileCookie = createCookie('duitlog_pending_google_profile'
   secrets: [process.env.SESSION_SECRET!],
 });
 
+function extractSpreadsheetId(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+
+  const urlMatch = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (urlMatch?.[1]) return urlMatch[1];
+
+  const rawMatch = trimmed.match(/^[a-zA-Z0-9-_]{20,}$/);
+  if (rawMatch) return trimmed;
+
+  return '';
+}
+
+function getSpreadsheetOverrideId(): string | null {
+  const raw = process.env.GOOGLE_SPREADSHEET_ID?.trim();
+  if (!raw) return null;
+
+  const parsed = extractSpreadsheetId(raw);
+  return parsed || null;
+}
+
 function getSession(request: Request) {
   return sessionStorage.getSession(request.headers.get('Cookie'));
 }
@@ -91,14 +112,18 @@ function readSessionUser(session: Awaited<ReturnType<typeof getSession>>): Sessi
 
   const picture = session.get('user_picture');
   const spreadsheetUrl = session.get('user_spreadsheet_url');
+  const overrideSpreadsheetId = getSpreadsheetOverrideId();
+  const effectiveSpreadsheetId = overrideSpreadsheetId ?? spreadsheetId;
+  const effectiveSpreadsheetUrl = overrideSpreadsheetId
+    ? `https://docs.google.com/spreadsheets/d/${overrideSpreadsheetId}/edit`
+    : (typeof spreadsheetUrl === 'string' ? spreadsheetUrl : undefined);
 
   return {
     email,
     name,
-    spreadsheetId,
+    spreadsheetId: effectiveSpreadsheetId,
     picture: typeof picture === 'string' ? picture : undefined,
-    spreadsheetUrl:
-      typeof spreadsheetUrl === 'string' ? spreadsheetUrl : undefined,
+    spreadsheetUrl: effectiveSpreadsheetUrl,
   };
 }
 
@@ -106,13 +131,19 @@ export async function createUserSession(
   request: Request,
   user: SessionUser,
 ): Promise<Response> {
+  const overrideSpreadsheetId = getSpreadsheetOverrideId();
+  const effectiveSpreadsheetId = overrideSpreadsheetId ?? user.spreadsheetId;
+  const effectiveSpreadsheetUrl = overrideSpreadsheetId
+    ? `https://docs.google.com/spreadsheets/d/${overrideSpreadsheetId}/edit`
+    : (user.spreadsheetUrl ?? '');
+
   const session = await getSession(request);
   session.set('authenticated', true);
   session.set('user_email', user.email);
   session.set('user_name', user.name);
   session.set('user_picture', user.picture ?? '');
-  session.set('user_spreadsheet_id', user.spreadsheetId);
-  session.set('user_spreadsheet_url', user.spreadsheetUrl ?? '');
+  session.set('user_spreadsheet_id', effectiveSpreadsheetId);
+  session.set('user_spreadsheet_url', effectiveSpreadsheetUrl);
 
   return redirect('/', {
     headers: { 'Set-Cookie': await sessionStorage.commitSession(session) },

@@ -1,220 +1,109 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   data,
+  isRouteErrorResponse,
   useActionData,
-  useLoaderData,
   useNavigation,
   useRouteError,
-  isRouteErrorResponse,
 } from 'react-router';
-import type { Route } from './+types/_index';
-import {
-  appendExpense,
-  syncRecapByMonth,
-} from '~/lib/sheets.server';
-import { expenseSchema } from '~/lib/validation';
-import { ExpenseForm } from '~/components/expense-form';
-import { MonthSelector } from '~/components/month-selector';
-import { log } from '~/lib/logger.server';
 import { toast } from 'sonner';
+import type { Route } from './+types/_index';
 import { requireAuth } from '~/lib/auth.server';
-import { resolveActiveMonth, isNetworkError } from '~/lib/month.server';
+import { appendJobApplication, getJakartaTimestamp } from '~/lib/sheets.server';
+import { jobApplicationSchema } from '~/lib/validation';
+import { ExpenseForm } from '~/components/expense-form';
 import {
-  selectedMonthCookie,
-  selectedSourceCookie,
-  customSourcesCookie,
-} from '~/lib/cookies.server';
-import { SOURCES } from '~/lib/constants';
-import {
-  addPendingExpense,
+  addPendingApplication,
   getPendingCount,
   registerBackgroundSync,
 } from '~/lib/offline-queue';
+import { isNetworkError } from '~/lib/month.server';
 import { syncPendingExpenses } from '~/lib/sync';
 
-function formatMonthLabel(month: string): string {
-  const date = new Date(month + '-01');
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'long',
-  }).format(date);
+export async function loader({ request }: Route.LoaderArgs) {
+  await requireAuth(request);
+  return data({ ok: true });
 }
 
 type ActionData =
-  | {
-      success: true;
-      entry: {
-        item: string;
-        category: string;
-        amount: number;
-        method: string;
-        date: string;
-        source: string;
-        month: string;
-      };
-    }
+  | { success: true }
   | { success: false; errors: Record<string, string> }
-  | { success: false; error: string }
-  | {
-      success: false;
-      networkError: true;
-      pendingData: {
-        month: string;
-        item: string;
-        date: string;
-        amount: number;
-        category: string;
-        method: string;
-        source: string;
-      };
-    };
-
-export async function loader({ request }: Route.LoaderArgs) {
-  const user = await requireAuth(request);
-
-  const cookieHeader = request.headers.get('Cookie');
-  const cookieMonth = await selectedMonthCookie.parse(cookieHeader);
-  const cookieSource = await selectedSourceCookie.parse(cookieHeader);
-  const rawSources = await customSourcesCookie.parse(cookieHeader);
-  const sources: string[] = Array.isArray(rawSources) && rawSources.length > 0
-    ? rawSources
-    : [...SOURCES];
-
-  const { months, activeMonth } = await resolveActiveMonth(
-    user.spreadsheetId,
-    cookieMonth,
-  );
-
-  return data({
-    months,
-    activeMonth,
-    defaultSource: cookieSource ?? sources[0],
-    sources,
-  });
-}
+  | { success: false; error: string; pending?: Record<string, string> };
 
 export async function action({ request }: Route.ActionArgs) {
   const user = await requireAuth(request);
   const formData = await request.formData();
+
   const raw = {
-    month: formData.get('month') as string,
-    item: formData.get('item') as string,
-    date: formData.get('date') as string,
-    amount: ((formData.get('amount') as string) ?? '').replace(/,/g, ''),
-    category: formData.get('category') as string,
-    method: formData.get('method') as string,
-    source: formData.get('source') as string,
+    role: String(formData.get('role') ?? ''),
+    status: String(formData.get('status') ?? ''),
+    company: String(formData.get('company') ?? ''),
+    dateApplying: String(formData.get('dateApplying') ?? ''),
+    appliedVia: String(formData.get('appliedVia') ?? ''),
+    linkJobs: String(formData.get('linkJobs') ?? ''),
+    progress: String(formData.get('progress') ?? ''),
+    event: String(formData.get('event') ?? ''),
   };
 
-  const result = expenseSchema.safeParse(raw);
-
-  if (!result.success) {
-    const fieldErrors: Record<string, string> = {};
-    for (const issue of result.error.issues) {
-      const key = issue.path[0] as string;
-      if (!fieldErrors[key]) {
-        fieldErrors[key] = issue.message;
-      }
+  const parsed = jobApplicationSchema.safeParse(raw);
+  if (!parsed.success) {
+    const errors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const key = String(issue.path[0] ?? 'form');
+      if (!errors[key]) errors[key] = issue.message;
     }
-    return data({ success: false as const, errors: fieldErrors });
+    return data({ success: false as const, errors }, { status: 400 });
   }
 
-  const parsed = result.data;
-
-  const now = new Date();
-  const jakartaDate = new Date(
-    now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }),
-  );
-  const timestamp = `${jakartaDate.getMonth() + 1}/${jakartaDate.getDate()}/${jakartaDate.getFullYear()} ${String(jakartaDate.getHours()).padStart(2, '0')}:${String(jakartaDate.getMinutes()).padStart(2, '0')}:${String(jakartaDate.getSeconds()).padStart(2, '0')}`;
-
-  const [year, month, day] = parsed.date.split('-');
-  const formattedDate = `${Number(month)}/${Number(day)}/${year}`;
+  const d = parsed.data;
+  const [year, month, day] = d.dateApplying.split('-');
+  const dateApplying = `${Number(month)}/${Number(day)}/${year}`;
 
   const row = [
-    timestamp, // Timestamp
-    parsed.item, // Item
-    parsed.category, // Category
-    String(parsed.amount), // Amount (IDR)
-    parsed.method, // Payment Method
-    formattedDate, // Date
-    parsed.source, // Source
+    getJakartaTimestamp(),
+    d.role,
+    d.status,
+    d.company,
+    dateApplying,
+    d.appliedVia,
+    d.linkJobs,
+    d.progress,
+    d.event,
   ];
 
   try {
-    await appendExpense(user.spreadsheetId, parsed.month, row);
-    await syncRecapByMonth(user.spreadsheetId, parsed.month);
-    const headers = new Headers();
-    headers.append(
-      'Set-Cookie',
-      await selectedMonthCookie.serialize(parsed.month),
-    );
-    headers.append(
-      'Set-Cookie',
-      await selectedSourceCookie.serialize(parsed.source),
-    );
-    return data(
-      {
-        success: true as const,
-        entry: {
-          item: parsed.item,
-          category: parsed.category,
-          amount: parsed.amount,
-          method: parsed.method,
-          date: parsed.date,
-          source: parsed.source,
-          month: parsed.month,
-        },
-      },
-      { headers },
-    );
+    await appendJobApplication(user.spreadsheetId, row);
+    return data({ success: true as const });
   } catch (err) {
     if (isNetworkError(err)) {
-      return data({
-        success: false as const,
-        networkError: true as const,
-        pendingData: {
-          month: parsed.month,
-          item: parsed.item,
-          date: parsed.date,
-          amount: parsed.amount,
-          category: parsed.category,
-          method: parsed.method,
-          source: parsed.source,
-        },
-      });
+      return data({ success: false as const, error: 'offline', pending: raw });
     }
-    log('error', 'action_append_error', {
-      error: (err as Error).message,
-    });
     return data(
-      {
-        success: false as const,
-        error: 'Failed to save. Please try again.',
-      },
+      { success: false as const, error: 'Failed to save. Please try again.' },
       { status: 500 },
     );
   }
 }
 
 export default function Index() {
-  const { months, activeMonth, defaultSource, sources } =
-    useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as
-    | ActionData
-    | undefined;
+  const actionData = useActionData<typeof action>() as ActionData | undefined;
   const navigation = useNavigation();
   const isSubmitting = navigation.state === 'submitting';
-  const amountRef = useRef<HTMLInputElement>(null);
-
-  const [selectedMonth, setSelectedMonth] = useState(activeMonth);
   const [formKey, setFormKey] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
-  const [isSyncing, setIsSyncing] = useState(false);
 
-  // Track online/offline status
+  const refreshPendingCount = useCallback(async () => {
+    try {
+      setPendingCount(await getPendingCount());
+    } catch {
+      setPendingCount(0);
+    }
+  }, []);
+
   useEffect(() => {
     setIsOnline(navigator.onLine);
+    refreshPendingCount();
 
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -225,160 +114,60 @@ export default function Index() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
-
-  // Load pending count on mount
-  const refreshPendingCount = useCallback(async () => {
-    try {
-      const count = await getPendingCount();
-      setPendingCount(count);
-    } catch {
-      // IndexedDB not available
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshPendingCount();
   }, [refreshPendingCount]);
 
-  // Auto-sync when coming back online
-  // Skip when SyncManager is available — the SW Background Sync owns it then,
-  // preventing concurrent submissions of the same queued entry.
-  useEffect(() => {
-    if (!isOnline || pendingCount === 0 || isSyncing) return;
-    if (typeof window !== 'undefined' && 'SyncManager' in window)
-      return;
-
-    setIsSyncing(true);
-    syncPendingExpenses((synced, total) => {
-      setPendingCount(total - synced);
-    })
-      .then(({ synced, failed }) => {
-        refreshPendingCount();
-        if (synced > 0) {
-          toast.success(
-            `Synced ${synced} expense${synced > 1 ? 's' : ''} to Google Sheets${failed > 0 ? ` (${failed} failed)` : ''}`,
-          );
-        }
-      })
-      .catch((error) => {
-        // Ensure the user is informed when background sync fails
-        console.error('Failed to sync pending expenses', error);
-        toast.error(
-          'Failed to sync pending expenses. They will be retried automatically when possible.',
-        );
-      })
-      .finally(() => {
-        setIsSyncing(false);
-      });
-  }, [isOnline, pendingCount, isSyncing, refreshPendingCount]);
-
-  // Listen for SW sync-complete message
-  useEffect(() => {
-    if (!('serviceWorker' in navigator)) return;
-
-    const handler = (event: MessageEvent) => {
-      if (event.data?.type === 'SYNC_COMPLETE') {
-        refreshPendingCount();
-      }
+  async function handleOfflineSubmit(formData: FormData) {
+    const payload = {
+      role: String(formData.get('role') ?? ''),
+      status: String(formData.get('status') ?? ''),
+      company: String(formData.get('company') ?? ''),
+      dateApplying: String(formData.get('dateApplying') ?? ''),
+      appliedVia: String(formData.get('appliedVia') ?? ''),
+      linkJobs: String(formData.get('linkJobs') ?? ''),
+      progress: String(formData.get('progress') ?? ''),
+      event: String(formData.get('event') ?? ''),
     };
 
-    navigator.serviceWorker.addEventListener('message', handler);
-    return () =>
-      navigator.serviceWorker.removeEventListener('message', handler);
-  }, [refreshPendingCount]);
+    await addPendingApplication({
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      formData: payload,
+    });
+    await registerBackgroundSync();
+    await refreshPendingCount();
+    toast('Saved offline. Will sync when online.');
+    setFormKey((prev) => prev + 1);
+  }
 
-  // Handle action response
   useEffect(() => {
     if (!actionData) return;
 
     if (actionData.success) {
-      const monthLabel = formatMonthLabel(actionData.entry.month);
-      toast.success(
-        `Saved to ${monthLabel}: ${actionData.entry.item} — IDR ${actionData.entry.amount.toLocaleString()}`,
-      );
-      if (
-        typeof navigator !== 'undefined' &&
-        typeof navigator.vibrate === 'function'
-      ) {
-        navigator.vibrate(50);
-      }
-      setFormKey((k) => k + 1);
-      setTimeout(() => amountRef.current?.focus(), 100);
-    } else if ('networkError' in actionData && actionData.networkError) {
-      // Server couldn't reach Sheets — fall back to offline queue
+      toast.success('Application saved');
+      setFormKey((prev) => prev + 1);
+      return;
+    }
+
+    if ('pending' in actionData && actionData.pending) {
       const fd = new FormData();
-      Object.entries(actionData.pendingData).forEach(([k, v]) =>
-        fd.set(k, String(v)),
-      );
-      handleOfflineSubmit(fd);
-    } else if ('error' in actionData && actionData.error) {
+      Object.entries(actionData.pending).forEach(([k, v]) => fd.set(k, v));
+      handleOfflineSubmit(fd).catch(() => {
+        toast.error('Failed to queue offline data.');
+      });
+      return;
+    }
+
+    if ('error' in actionData && actionData.error && actionData.error !== 'offline') {
       toast.error(actionData.error);
     }
   }, [actionData]);
 
-  function generateOfflineId(): string {
-    // Prefer native crypto.randomUUID when available, fall back to timestamp+random
-    if (
-      typeof crypto !== 'undefined' &&
-      typeof crypto.randomUUID === 'function'
-    ) {
-      return crypto.randomUUID();
-    }
-
-    return (
-      'offline-' +
-      Date.now().toString(36) +
-      '-' +
-      Math.random().toString(36).slice(2)
-    );
-  }
-
-  // Handle offline form submission
-  async function handleOfflineSubmit(formData: FormData) {
-    const expense = {
-      id: generateOfflineId(),
-      createdAt: new Date().toISOString(),
-      formData: {
-        month: formData.get('month') as string,
-        item: formData.get('item') as string,
-        date: formData.get('date') as string,
-        amount: formData.get('amount') as string,
-        category: formData.get('category') as string,
-        method: formData.get('method') as string,
-        source: formData.get('source') as string,
-      },
-    };
-
-    try {
-      await addPendingExpense(expense);
-      await registerBackgroundSync();
-      await refreshPendingCount();
-
-      toast('Saved offline — will sync when connected', {
-        style: {
-          backgroundColor: '#fffbeb',
-          color: '#92400e',
-          border: '1px solid #fde68a',
-        },
-      });
-
-      if (
-        typeof navigator !== 'undefined' &&
-        typeof navigator.vibrate === 'function'
-      ) {
-        navigator.vibrate(50);
-      }
-
-      setFormKey((k) => k + 1);
-      setTimeout(() => amountRef.current?.focus(), 100);
-    } catch (error) {
-      console.error('Failed to save expense offline', error);
-      toast.error(
-        'Could not save expense for offline use. Please try again or submit when back online.',
-      );
-    }
-  }
+  useEffect(() => {
+    if (!isOnline || pendingCount === 0) return;
+    syncPendingExpenses()
+      .then(() => refreshPendingCount())
+      .catch(() => undefined);
+  }, [isOnline, pendingCount, refreshPendingCount]);
 
   const errors =
     actionData && !actionData.success && 'errors' in actionData
@@ -387,36 +176,22 @@ export default function Index() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col bg-white">
-      <header className="px-4 flex justify-between items-center pt-[max(1.5rem,env(safe-area-inset-top))] pb-2 shrink-0">
+      <header className="px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-2">
         <h1 className="text-xl font-bold tracking-tight text-slate-900">
-          DuitLog
+          Job Tracker
         </h1>
-        <div className="mt-2">
-          <MonthSelector
-            months={months}
-            activeMonth={selectedMonth}
-            onChange={setSelectedMonth}
-          />
-        </div>
+        <p className="text-sm text-slate-500">Track every job application in one place</p>
       </header>
 
-      {/* Offline banner */}
       {!isOnline && (
         <div className="mx-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-800">
-          You're offline — expenses will be saved locally and synced
-          when you reconnect.
+          You are offline. Entries will be queued and synced later.
         </div>
       )}
 
-      {/* Pending sync badge */}
       {pendingCount > 0 && (
-        <div className="mx-4 mb-2 flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-center text-sm text-blue-800">
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-xs font-bold text-white">
-            {pendingCount}
-          </span>
-          {isSyncing
-            ? 'Syncing...'
-            : `pending expense${pendingCount > 1 ? 's' : ''}`}
+        <div className="mx-4 mb-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-center text-sm text-blue-800">
+          {pendingCount} pending application{pendingCount > 1 ? 's' : ''}
         </div>
       )}
 
@@ -424,10 +199,6 @@ export default function Index() {
         key={formKey}
         errors={errors}
         isSubmitting={isSubmitting}
-        amountRef={amountRef}
-        selectedMonth={selectedMonth}
-        defaultSource={defaultSource}
-        sources={sources}
         isOnline={isOnline}
         onOfflineSubmit={handleOfflineSubmit}
       />
@@ -437,23 +208,17 @@ export default function Index() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
-  const isDev = process.env.NODE_ENV === 'development';
   const message = isRouteErrorResponse(error)
     ? error.statusText || 'Something went wrong'
-    : isDev && error instanceof Error
+    : error instanceof Error
       ? error.message
       : 'Something went wrong';
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center bg-white px-6 text-center">
-      <h1 className="text-xl font-bold text-slate-900">
-        Something went wrong
-      </h1>
+      <h1 className="text-xl font-bold text-slate-900">Something went wrong</h1>
       <p className="mt-2 text-sm text-slate-500">{message}</p>
-      <a
-        href="/"
-        className="mt-6 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white"
-      >
+      <a href="/" className="mt-6 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white">
         Go home
       </a>
     </main>

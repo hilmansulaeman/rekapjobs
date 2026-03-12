@@ -1,106 +1,54 @@
-import type { ExpenseEntry } from '~/lib/types';
+import type { JobApplication } from '~/lib/types';
 
-const categoryColors: Record<string, string> = {
-  Food: 'bg-amber-100 text-amber-800',
-  Transport: 'bg-blue-100 text-blue-800',
-  Groceries: 'bg-green-100 text-green-800',
-  Utilities: 'bg-purple-100 text-purple-800',
-  Health: 'bg-red-100 text-red-800',
-  Entertainment: 'bg-pink-100 text-pink-800',
-  Shopping: 'bg-indigo-100 text-indigo-800',
-  Education: 'bg-teal-100 text-teal-800',
-  Other: 'bg-slate-100 text-slate-800',
-};
-
-function sourceColor(source: string): string {
-  if (source === 'Hilman') return 'bg-blue-500 text-white';
-  if (source === 'Together') return 'bg-indigo-500 text-white';
-  return 'bg-slate-200 text-slate-700';
+function progressColor(progress: string): string {
+  const p = progress.toLowerCase();
+  if (p === 'rejected') return 'bg-red-600 text-white';
+  if (p === 'accepted') return 'bg-emerald-600 text-white';
+  if (p === 'offered') return 'bg-indigo-600 text-white';
+  if (p === 'interview') return 'bg-amber-500 text-slate-900';
+  if (p === 'withdrawn') return 'bg-slate-500 text-white';
+  return 'bg-blue-600 text-white';
 }
 
-function formatAmount(amount: number): string {
-  return `IDR ${new Intl.NumberFormat('id-ID').format(amount)}`;
-}
-
-function formatDate(dateStr: string): string {
-  // dateStr is "M/D/YYYY"
-  const parts = dateStr.split('/');
-  if (parts.length !== 3) return dateStr;
-  const [month, day, year] = parts;
-  const d = new Date(Number(year), Number(month) - 1, Number(day));
-  if (isNaN(d.getTime())) return dateStr;
-  return new Intl.DateTimeFormat('en-US', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  }).format(d);
-}
-
-function relativeTime(timestamp: string): string {
-  // timestamp is "M/D/YYYY HH:mm:ss"
-  const [datePart, timePart] = timestamp.split(' ');
-  if (!datePart || !timePart) return '';
-  const [month, day, year] = datePart.split('/');
-  const [hours, minutes, seconds] = timePart.split(':');
-  const d = new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hours),
-    Number(minutes),
-    Number(seconds),
-  );
-  if (isNaN(d.getTime())) return '';
-
-  const diffMs = Date.now() - d.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  if (diffSec < 60) return 'just now';
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 7) return `${diffDay}d ago`;
-  const diffWeek = Math.floor(diffDay / 7);
-  return `${diffWeek}w ago`;
-}
-
-export function ExpenseCard({ entry }: { entry: ExpenseEntry }) {
-  const colorClass = categoryColors[entry.category] ?? categoryColors.Other;
-
+export function ExpenseCard({ entry }: { entry: JobApplication }) {
   return (
-    <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-lg font-semibold text-slate-900">
-          {formatAmount(entry.amount)}
-        </span>
-        <span className="truncate text-sm font-medium text-slate-700">
-          {entry.item}
-        </span>
-        <div className="flex items-center gap-2">
-          <span
-            className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${colorClass}`}
-          >
-            {entry.category}
-          </span>
-          <span className="text-[11px] text-slate-400">{entry.method}</span>
-          {entry.source && (
-            <span
-              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${sourceColor(entry.source)}`}
-            >
-              {entry.source}
-            </span>
-          )}
+    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate text-base font-semibold text-slate-900">
+            {entry.role}
+          </h3>
+          <p className="truncate text-sm text-slate-600">{entry.company}</p>
         </div>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-0.5 pl-3">
-        <span className="text-xs font-medium text-slate-600">
-          {formatDate(entry.date)}
-        </span>
-        <span className="text-[10px] text-slate-400">
-          {relativeTime(entry.timestamp)}
+        <span
+          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${progressColor(entry.progress)}`}
+        >
+          {entry.progress}
         </span>
       </div>
-    </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+        <p><span className="font-medium text-slate-800">Status:</span> {entry.status}</p>
+        <p><span className="font-medium text-slate-800">Date:</span> {entry.dateApplying}</p>
+        <p className="col-span-2"><span className="font-medium text-slate-800">Via:</span> {entry.appliedVia}</p>
+      </div>
+
+      {entry.linkJobs && (
+        <a
+          href={entry.linkJobs}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 inline-block text-xs font-medium text-blue-700 underline underline-offset-2"
+        >
+          Open Job Link
+        </a>
+      )}
+
+      {entry.event && (
+        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
+          {entry.event}
+        </p>
+      )}
+    </article>
   );
 }

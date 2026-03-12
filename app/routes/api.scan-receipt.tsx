@@ -256,6 +256,10 @@ export async function action({ request }: Route.ActionArgs) {
       lowered.includes('missing google_private_key') ||
       lowered.includes('missing google_service_account_email')
         ? 'Google Vision credentials are missing on server'
+        : lowered.includes('billing_disabled') ||
+            lowered.includes('requires billing') ||
+            lowered.includes('enable billing')
+          ? 'Google Cloud billing is disabled for the Vision API project'
         : lowered.includes('api has not been used') ||
             lowered.includes('vision.googleapis.com')
           ? 'Cloud Vision API is not enabled on the Google Cloud project'

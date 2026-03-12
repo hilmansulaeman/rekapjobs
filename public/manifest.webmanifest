@@ -1,6 +1,6 @@
 {
-  "name": "DuitLog",
-  "short_name": "DuitLog",
+  "name": "Job Tracker",
+  "short_name": "Jobs",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

@@ -1,9 +1,11 @@
-export interface ExpenseEntry {
+export interface JobApplication {
   timestamp: string;
-  item: string;
-  category: string;
-  amount: number;
-  method: string;
-  date: string;
-  source: string;
+  role: string;
+  status: string;
+  company: string;
+  dateApplying: string;
+  appliedVia: string;
+  linkJobs: string;
+  progress: string;
+  event: string;
 }

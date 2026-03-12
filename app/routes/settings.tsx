@@ -2,11 +2,12 @@ import { data, Form, useActionData, useLoaderData, useNavigation } from 'react-r
 import type { Route } from './+types/settings';
 import { requireAuth } from '~/lib/auth.server';
 import { customSourcesCookie } from '~/lib/cookies.server';
-import { SOURCES } from '~/lib/constants';
+
+const DEFAULT_SOURCES = ['Personal'] as const;
 
 async function getSources(cookieHeader: string | null): Promise<string[]> {
   const raw = await customSourcesCookie.parse(cookieHeader);
-  return Array.isArray(raw) && raw.length > 0 ? raw : [...SOURCES];
+  return Array.isArray(raw) && raw.length > 0 ? raw : [...DEFAULT_SOURCES];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -85,10 +86,10 @@ export default function Settings() {
         </Form>
       </section>
 
-      {/* Paid From Sources */}
+      {/* Application Sources */}
       <section>
         <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">
-          Paid From — Nama Source
+          Applied Via - Custom Sources
         </h2>
 
         <ul className="mb-4 flex flex-col gap-2">
@@ -132,7 +133,7 @@ export default function Settings() {
           </button>
         </Form>
         <p className="mt-2 text-xs text-slate-400">
-          Minimal harus ada 1 source aktif.
+          Keep at least one source active.
         </p>
       </section>
     </main>

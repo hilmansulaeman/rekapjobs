@@ -33,6 +33,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   return { isAuthenticated: await isAuthenticated(request) };
 }
 
+export const meta: Route.MetaFunction = () => {
+  return [{ title: 'Job Tracker' }];
+};
+
 export function Layout({ children }: { children: React.ReactNode }) {
   const [swUpdate, setSwUpdate] = useState(false);
   const [waitingWorker, setWaitingWorker] =
@@ -111,7 +115,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="apple-mobile-web-app-status-bar-style"
           content="black-translucent"
         />
-        <meta name="apple-mobile-web-app-title" content="DuitLog" />
+        <meta name="apple-mobile-web-app-title" content="Job Tracker" />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <Meta />
@@ -182,7 +186,7 @@ export default function App() {
                   <line x1="12" y1="8" x2="12" y2="16" />
                   <line x1="8" y1="12" x2="16" y2="12" />
                 </svg>
-                <span>Add</span>
+                <span>New</span>
               </>
             )}
           </NavLink>
@@ -234,7 +238,7 @@ export default function App() {
                   <path d="M16 20v-7" />
                   <path d="M22 20v-4" />
                 </svg>
-                <span>Rekap</span>
+                <span>Stats</span>
               </>
             )}
           </NavLink>

@@ -1,54 +1,49 @@
-import { data } from "react-router";
-import type { Route } from "./+types/api.sync";
-import { requireAuth } from "~/lib/auth.server";
-import { expenseSchema } from "~/lib/validation";
-import { appendExpense, syncRecapByMonth } from "~/lib/sheets.server";
-import { log } from "~/lib/logger.server";
+import { data } from 'react-router';
+import type { Route } from './+types/api.sync';
+import { requireAuth } from '~/lib/auth.server';
+import {
+  appendJobApplication,
+  getJakartaTimestamp,
+} from '~/lib/sheets.server';
+import { jobApplicationSchema } from '~/lib/validation';
+import { log } from '~/lib/logger.server';
 
 export async function action({ request }: Route.ActionArgs) {
   const user = await requireAuth(request);
 
   const body = await request.json();
-  const result = expenseSchema.safeParse(body);
+  const parsed = jobApplicationSchema.safeParse(body);
 
-  if (!result.success) {
-    return data({ success: false, error: "Validation failed" }, { status: 400 });
+  if (!parsed.success) {
+    return data({ success: false, error: 'Validation failed' }, { status: 400 });
   }
 
-  const parsed = result.data;
-
-  // Use original submission time (createdAt) if available, otherwise use current time
-  const createdAt = body.createdAt ? new Date(body.createdAt) : new Date();
-  const jakartaDate = new Date(
-    createdAt.toLocaleString("en-US", { timeZone: "Asia/Jakarta" })
-  );
-  const timestamp = `${jakartaDate.getMonth() + 1}/${jakartaDate.getDate()}/${jakartaDate.getFullYear()} ${String(jakartaDate.getHours()).padStart(2, "0")}:${String(jakartaDate.getMinutes()).padStart(2, "0")}:${String(jakartaDate.getSeconds()).padStart(2, "0")}`;
-
-  const [year, month, day] = parsed.date.split("-");
-  const formattedDate = `${Number(month)}/${Number(day)}/${year}`;
+  const d = parsed.data;
+  const [year, month, day] = d.dateApplying.split('-');
+  const dateApplying = `${Number(month)}/${Number(day)}/${year}`;
 
   const row = [
-    timestamp,
-    parsed.item,
-    parsed.category,
-    String(parsed.amount),
-    parsed.method,
-    formattedDate,
-    parsed.source,
+    getJakartaTimestamp(),
+    d.role,
+    d.status,
+    d.company,
+    dateApplying,
+    d.appliedVia,
+    d.linkJobs,
+    d.progress,
+    d.event,
   ];
 
   try {
-    await appendExpense(user.spreadsheetId, parsed.month, row);
-    await syncRecapByMonth(user.spreadsheetId, parsed.month);
-    log("info", "offline_expense_synced", {
-      source: parsed.source,
-      category: parsed.category,
-      amount: String(parsed.amount),
-      month: parsed.month,
+    await appendJobApplication(user.spreadsheetId, row);
+    log('info', 'offline_application_synced', {
+      company: d.company,
+      role: d.role,
+      progress: d.progress,
     });
     return data({ success: true });
   } catch (err) {
-    log("error", "offline_sync_failed", { error: (err as Error).message });
-    return data({ success: false, error: "Sheets API error" }, { status: 500 });
+    log('error', 'offline_sync_failed', { error: (err as Error).message });
+    return data({ success: false, error: 'Sheets API error' }, { status: 500 });
   }
 }

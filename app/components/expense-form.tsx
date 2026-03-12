@@ -1,9 +1,12 @@
-import React, { useReducer, useRef, type RefObject } from 'react';
-import { toast } from 'sonner';
+import { useReducer } from 'react';
 import { Form } from 'react-router';
-import { endOfMonth, format } from 'date-fns';
-import { CalendarIcon, ScanLine } from 'lucide-react';
-import { CATEGORIES, METHODS, SOURCES } from '~/lib/constants';
+import { format } from 'date-fns';
+import { CalendarIcon, ExternalLink } from 'lucide-react';
+import {
+  APPLIED_VIA_OPTIONS,
+  JOB_STATUSES,
+  PROGRESS_OPTIONS,
+} from '~/lib/constants';
 import { Calendar } from '~/components/ui/calendar';
 import {
   Popover,
@@ -12,13 +15,9 @@ import {
 } from '~/components/ui/popover';
 import { cn } from '~/lib/utils';
 
-interface ExpenseFormProps {
+interface JobFormProps {
   errors?: Record<string, string>;
   isSubmitting?: boolean;
-  amountRef?: RefObject<HTMLInputElement | null>;
-  selectedMonth?: string;
-  defaultSource?: string;
-  sources?: string[];
   isOnline?: boolean;
   onOfflineSubmit?: (formData: FormData) => Promise<void>;
 }
@@ -31,308 +30,128 @@ function toDateString(d: Date) {
 }
 
 type State = {
-  date: Date;
+  dateApplying: Date;
   calendarOpen: boolean;
-  amount: string;
-  item: string;
-  isScanning: boolean;
+  appliedViaCustom: string;
+  showCustomAppliedVia: boolean;
 };
 
 type Action =
   | { type: 'select_date'; date: Date }
   | { type: 'toggle_calendar'; open: boolean }
-  | { type: 'set_amount'; value: string }
-  | { type: 'set_item'; value: string }
-  | { type: 'set_scanning'; value: boolean }
-  | { type: 'autofill'; amount?: string; item?: string; date?: Date };
-
-function formatAmount(value: string): string {
-  const digits = value.replace(/\D/g, '');
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
+  | { type: 'set_applied_via_custom'; value: string }
+  | { type: 'toggle_custom_applied_via'; show: boolean };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'select_date':
-      return { ...state, date: action.date, calendarOpen: false };
+      return { ...state, dateApplying: action.date, calendarOpen: false };
     case 'toggle_calendar':
       return { ...state, calendarOpen: action.open };
-    case 'set_amount':
-      return { ...state, amount: formatAmount(action.value) };
-    case 'set_item':
-      return { ...state, item: action.value };
-    case 'set_scanning':
-      return { ...state, isScanning: action.value };
-    case 'autofill':
-      return {
-        ...state,
-        amount: action.amount !== undefined ? formatAmount(action.amount) : state.amount,
-        item: action.item !== undefined ? action.item : state.item,
-        date: action.date !== undefined ? action.date : state.date,
-        isScanning: false,
-      };
+    case 'set_applied_via_custom':
+      return { ...state, appliedViaCustom: action.value };
+    case 'toggle_custom_applied_via':
+      return { ...state, showCustomAppliedVia: action.show };
   }
 }
 
 export function ExpenseForm({
   errors,
   isSubmitting,
-  amountRef,
-  selectedMonth,
-  defaultSource,
-  sources = [...SOURCES],
   isOnline = true,
   onOfflineSubmit,
-}: ExpenseFormProps) {
+}: JobFormProps) {
   const [state, dispatch] = useReducer(reducer, {
-    date: new Date(),
+    dateApplying: new Date(),
     calendarOpen: false,
-    amount: '',
-    item: '',
-    isScanning: false,
+    appliedViaCustom: '',
+    showCustomAppliedVia: false,
   });
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  async function handleScan(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    dispatch({ type: 'set_scanning', value: true });
-
-    try {
-      const fd = new FormData();
-      fd.append('image', file);
-
-      const res = await fetch('/api/scan-receipt', { method: 'POST', body: fd });
-      const json = await res.json() as {
-        ok?: boolean; error?: string;
-        detail?: string;
-        amount?: string; item?: string; date?: string;
-      };
-
-      if (!res.ok || !json.ok) {
-        const message = json.error ?? 'Gagal membaca struk';
-        const detail = json.detail?.trim();
-        toast.error(detail ? `${message}: ${detail}` : message);
-        dispatch({ type: 'set_scanning', value: false });
-        return;
-      }
-
-      dispatch({
-        type: 'autofill',
-        amount: json.amount,
-        item: json.item,
-        date: json.date ? new Date(json.date) : undefined,
-      });
-      toast.success('Struk berhasil dibaca!');
-    } catch {
-      toast.error('Gagal menghubungi server scan');
-      dispatch({ type: 'set_scanning', value: false });
-    } finally {
-      e.target.value = '';
-    }
-  }
-
-  const maxDate = selectedMonth
-    ? endOfMonth(new Date(selectedMonth + '-01'))
-    : undefined;
-
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    if (isOnline) return; // Let RR7 handle it normally
-
+    if (isOnline) return;
     e.preventDefault();
-    const form = e.currentTarget;
-    const formData = new FormData(form);
-
-    // Basic client-side validation for offline entries
-    const rawAmount = formData.get('amount') as string;
-    const amount = rawAmount?.replace(/,/g, '') ?? '';
-    const category = formData.get('category') as string;
-    const method = formData.get('method') as string;
-    const source = formData.get('source') as string;
-    const item = formData.get('item') as string;
-    const date = formData.get('date') as string;
-
-    if (
-      !amount ||
-      !category ||
-      !method ||
-      !source ||
-      !item ||
-      !date
-    ) {
-      toast.error('Please fill in all required fields.');
-      return;
-    }
-
-    const numAmount = Number(amount);
-    if (isNaN(numAmount) || numAmount <= 0) {
-      toast.error('Amount must be a positive number.');
-      return;
-    }
-
-    // Replace formatted amount with raw digits in formData before passing to handler
-    formData.set('amount', amount);
-
+    const formData = new FormData(e.currentTarget);
     onOfflineSubmit?.(formData);
   }
 
   return (
     <Form
       method="post"
-      className="flex flex-col gap-4 p-4"
+      className="flex flex-col gap-5 p-4"
       onSubmit={handleSubmit}
     >
-      {selectedMonth && (
-        <input type="hidden" name="month" value={selectedMonth} />
-      )}
-
-      {/* Scan Receipt */}
       <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="sr-only"
-        onChange={handleScan}
+        type="hidden"
+        name="dateApplying"
+        value={toDateString(state.dateApplying)}
       />
-      <button
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={state.isScanning}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-700 disabled:opacity-50"
-      >
-        {state.isScanning ? (
-          <>
-            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            Membaca struk...
-          </>
-        ) : (
-          <>
-            <ScanLine className="h-4 w-4" />
-            Scan Struk
-          </>
-        )}
-      </button>
 
-      {/* Amount */}
-      <fieldset>
-        <div className="flex items-center gap-2 rounded-xl border-2 border-slate-200 px-4 py-3 focus-within:border-slate-900">
-          <span className="text-lg font-semibold text-slate-400">
-            IDR
-          </span>
-          <input
-            ref={amountRef}
-            type="text"
-            inputMode="decimal"
-            name="amount"
-            placeholder="0"
-            autoFocus
-            value={state.amount}
-            onChange={(e) =>
-              dispatch({
-                type: 'set_amount',
-                value: e.target.value,
-              })
-            }
-            className="w-full bg-transparent text-3xl font-bold text-slate-900 outline-none placeholder:text-slate-300"
-          />
-        </div>
-        {errors?.amount && (
-          <p className="mt-1 text-xs text-red-500">{errors.amount}</p>
-        )}
-      </fieldset>
-
-      {/* Item */}
       <fieldset>
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
-          Item
+          Role / Position <span className="text-red-500">*</span>
         </label>
         <input
           type="text"
-          name="item"
-          placeholder="What did you buy?"
-          maxLength={100}
-          value={state.item}
-          onChange={(e) => dispatch({ type: 'set_item', value: e.target.value })}
+          name="role"
+          placeholder="e.g. UI/UX Designer"
+          maxLength={150}
+          autoFocus
           className="w-full rounded-lg border-2 border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-slate-900"
         />
-        {errors?.item && (
-          <p className="mt-1 text-xs text-red-500">{errors.item}</p>
+        {errors?.role && (
+          <p className="mt-1 text-xs text-red-500">{errors.role}</p>
         )}
       </fieldset>
 
-      {/* Category */}
       <fieldset>
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
-          Category
-        </label>
-        <div className="grid grid-cols-3 gap-2">
-          {CATEGORIES.map((c) => (
-            <label key={c} className="cursor-pointer">
-              <input
-                type="radio"
-                name="category"
-                value={c}
-                className="peer sr-only"
-              />
-              <div className="rounded-lg bg-slate-100 py-2 text-center text-xs font-medium text-slate-600 transition-colors peer-checked:bg-slate-900 peer-checked:text-white">
-                {c}
-              </div>
-            </label>
-          ))}
-        </div>
-        {errors?.category && (
-          <p className="mt-1 text-xs text-red-500">
-            {errors.category}
-          </p>
-        )}
-      </fieldset>
-
-      {/* Payment Method */}
-      <fieldset>
-        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
-          Payment Method
-        </label>
-        <div className="grid grid-cols-3 gap-2">
-          {METHODS.map((m) => (
-            <label key={m} className="cursor-pointer">
-              <input
-                type="radio"
-                name="method"
-                value={m}
-                className="peer sr-only"
-              />
-              <div className="rounded-lg bg-slate-100 py-2 text-center text-xs font-medium text-slate-600 transition-colors peer-checked:bg-slate-900 peer-checked:text-white">
-                {m}
-              </div>
-            </label>
-          ))}
-        </div>
-        {errors?.method && (
-          <p className="mt-1 text-xs text-red-500">{errors.method}</p>
-        )}
-      </fieldset>
-
-      {/* Date */}
-      <fieldset>
-        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
-          Date
+          Company <span className="text-red-500">*</span>
         </label>
         <input
-          type="hidden"
-          name="date"
-          value={toDateString(state.date)}
+          type="text"
+          name="company"
+          placeholder="e.g. PT Maxxima Innovative Engineering"
+          maxLength={200}
+          className="w-full rounded-lg border-2 border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-slate-900"
         />
+        {errors?.company && (
+          <p className="mt-1 text-xs text-red-500">{errors.company}</p>
+        )}
+      </fieldset>
+
+      <fieldset>
+        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+          Job Type <span className="text-red-500">*</span>
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          {JOB_STATUSES.map((s) => (
+            <label key={s} className="cursor-pointer">
+              <input
+                type="radio"
+                name="status"
+                value={s}
+                defaultChecked={s === 'Full time'}
+                className="peer sr-only"
+              />
+              <div className="rounded-lg bg-slate-100 py-2 text-center text-xs font-medium text-slate-600 transition-colors peer-checked:bg-slate-900 peer-checked:text-white">
+                {s}
+              </div>
+            </label>
+          ))}
+        </div>
+        {errors?.status && (
+          <p className="mt-1 text-xs text-red-500">{errors.status}</p>
+        )}
+      </fieldset>
+
+      <fieldset>
+        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+          Date Applying <span className="text-red-500">*</span>
+        </label>
         <Popover
           open={state.calendarOpen}
-          onOpenChange={(open) =>
-            dispatch({ type: 'toggle_calendar', open })
-          }
+          onOpenChange={(open) => dispatch({ type: 'toggle_calendar', open })}
         >
           <PopoverTrigger asChild>
             <button
@@ -344,88 +163,143 @@ export function ExpenseForm({
             >
               <span className="flex items-center gap-2">
                 <CalendarIcon className="h-4 w-4 text-slate-400" />
-                {format(state.date, 'EEEE, d MMMM yyyy')}
+                {format(state.dateApplying, 'EEEE, d MMMM yyyy')}
               </span>
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-auto">
             <Calendar
               mode="single"
-              selected={state.date}
-              onSelect={(d) =>
-                d && dispatch({ type: 'select_date', date: d })
-              }
-              disabled={maxDate ? (d) => d > maxDate : undefined}
-              endMonth={maxDate}
+              selected={state.dateApplying}
+              onSelect={(d) => d && dispatch({ type: 'select_date', date: d })}
               initialFocus
             />
           </PopoverContent>
         </Popover>
-        {errors?.date && (
-          <p className="mt-1 text-xs text-red-500">{errors.date}</p>
+        {errors?.dateApplying && (
+          <p className="mt-1 text-xs text-red-500">{errors.dateApplying}</p>
         )}
       </fieldset>
 
-      {/* Source */}
       <fieldset>
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
-          Paid from
+          Applied Via <span className="text-red-500">*</span>
         </label>
-        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(sources.length, 3)}, 1fr)` }}>
-          {sources.map((s) => (
-            <label key={s} className="cursor-pointer">
+        <div className="grid grid-cols-3 gap-2">
+          {APPLIED_VIA_OPTIONS.filter((v) => v !== 'Other').map((v) => (
+            <label key={v} className="cursor-pointer">
               <input
                 type="radio"
-                name="source"
-                value={s}
-                defaultChecked={s === (defaultSource ?? sources[0])}
+                name="appliedVia"
+                value={v}
+                defaultChecked={v === 'LinkedIn'}
+                onChange={() =>
+                  dispatch({ type: 'toggle_custom_applied_via', show: false })
+                }
                 className="peer sr-only"
               />
               <div className="rounded-lg bg-slate-100 py-2 text-center text-xs font-medium text-slate-600 transition-colors peer-checked:bg-slate-900 peer-checked:text-white">
-                {s}
+                {v}
+              </div>
+            </label>
+          ))}
+          <label className="cursor-pointer">
+            <input
+              type="radio"
+              name="appliedVia"
+              value={
+                state.showCustomAppliedVia
+                  ? state.appliedViaCustom || 'Other'
+                  : 'Other'
+              }
+              onChange={() =>
+                dispatch({ type: 'toggle_custom_applied_via', show: true })
+              }
+              className="peer sr-only"
+            />
+            <div className="rounded-lg bg-slate-100 py-2 text-center text-xs font-medium text-slate-600 transition-colors peer-checked:bg-slate-900 peer-checked:text-white">
+              Other
+            </div>
+          </label>
+        </div>
+        {state.showCustomAppliedVia && (
+          <input
+            type="text"
+            placeholder="Specify..."
+            value={state.appliedViaCustom}
+            onChange={(e) => {
+              dispatch({
+                type: 'set_applied_via_custom',
+                value: e.target.value,
+              });
+            }}
+            className="mt-2 w-full rounded-lg border-2 border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-slate-900"
+          />
+        )}
+        {errors?.appliedVia && (
+          <p className="mt-1 text-xs text-red-500">{errors.appliedVia}</p>
+        )}
+      </fieldset>
+
+      <fieldset>
+        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+          Link Jobs
+        </label>
+        <div className="flex items-center gap-2 rounded-lg border-2 border-slate-200 px-4 py-3 focus-within:border-slate-900">
+          <ExternalLink className="h-4 w-4 shrink-0 text-slate-400" />
+          <input
+            type="url"
+            name="linkJobs"
+            placeholder="https://linkedin.com/jobs/..."
+            className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+          />
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+          Progress <span className="text-red-500">*</span>
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          {PROGRESS_OPTIONS.map((p) => (
+            <label key={p} className="cursor-pointer">
+              <input
+                type="radio"
+                name="progress"
+                value={p}
+                defaultChecked={p === 'Applied'}
+                className="peer sr-only"
+              />
+              <div className="rounded-lg bg-slate-100 py-2 text-center text-xs font-medium text-slate-600 transition-colors peer-checked:bg-slate-900 peer-checked:text-white">
+                {p}
               </div>
             </label>
           ))}
         </div>
-        {errors?.source && (
-          <p className="mt-1 text-xs text-red-500">{errors.source}</p>
+        {errors?.progress && (
+          <p className="mt-1 text-xs text-red-500">{errors.progress}</p>
         )}
       </fieldset>
 
-      {/* Submit */}
+      <fieldset>
+        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+          Event / Notes
+        </label>
+        <textarea
+          name="event"
+          placeholder="e.g. UIUX Designer Interview - Ray Gineung P.Z."
+          maxLength={500}
+          rows={3}
+          className="w-full resize-none rounded-lg border-2 border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-slate-900"
+        />
+      </fieldset>
+
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-50 mt-4"
+        className="mt-2 w-full rounded-xl bg-slate-900 py-4 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
       >
-        {isSubmitting ? (
-          <span className="inline-flex items-center gap-2">
-            <svg
-              className="h-4 w-4 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
-            Saving...
-          </span>
-        ) : isOnline ? (
-          'Save Expense'
-        ) : (
-          'Save Offline'
-        )}
+        {isSubmitting ? 'Saving...' : isOnline ? 'Save Application' : 'Save Offline'}
       </button>
     </Form>
   );

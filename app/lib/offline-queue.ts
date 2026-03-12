@@ -1,14 +1,15 @@
-export interface PendingExpense {
+export interface PendingApplication {
   id: string;
   createdAt: string;
   formData: {
-    month: string;
-    item: string;
-    date: string;
-    amount: string;
-    category: string;
-    method: string;
-    source: string;
+    role: string;
+    status: string;
+    company: string;
+    dateApplying: string;
+    appliedVia: string;
+    linkJobs: string;
+    progress: string;
+    event: string;
   };
 }
 
@@ -30,7 +31,7 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function addPendingExpense(expense: PendingExpense): Promise<void> {
+export async function addPendingApplication(expense: PendingApplication): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
@@ -46,7 +47,7 @@ export async function addPendingExpense(expense: PendingExpense): Promise<void> 
   });
 }
 
-export async function getAllPending(): Promise<PendingExpense[]> {
+export async function getAllPending(): Promise<PendingApplication[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
@@ -62,7 +63,7 @@ export async function getAllPending(): Promise<PendingExpense[]> {
   });
 }
 
-export async function removePendingExpense(id: string): Promise<void> {
+export async function removePendingApplication(id: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");

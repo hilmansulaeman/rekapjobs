@@ -40,7 +40,7 @@ export default function Login() {
     <main className="flex min-h-screen flex-col items-center justify-center bg-white px-4">
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="mb-3 text-center text-2xl font-bold tracking-tight text-slate-900">
-          DuitLog
+          Job Tracker
         </h1>
         <p className="mb-6 text-center text-sm text-slate-500">
           Login with Google. On first sign-in, you will connect your own spreadsheet once.

@@ -1,4 +1,4 @@
-import { getAllPending, removePendingExpense } from './offline-queue';
+import { getAllPending, removePendingApplication } from './offline-queue';
 
 export type SyncProgressCallback = (
   synced: number,
@@ -33,14 +33,14 @@ async function _doSync(
       const isAuthFailure = response.redirected || response.status === 401;
 
       if (response.ok && !isAuthFailure) {
-        await removePendingExpense(entry.id);
-        synced++;
+        await removePendingApplication(entry.id);
+        synced++
       } else {
         // If validation failed (400), remove it — it will never succeed.
         // If server error (500), keep for retry.
         // For auth failures (redirect/401), also keep for later retry after login.
         if (response.status === 400) {
-          await removePendingExpense(entry.id);
+          await removePendingApplication(entry.id);
         }
         failed++;
       }
